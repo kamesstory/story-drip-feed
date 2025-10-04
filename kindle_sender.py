@@ -17,6 +17,7 @@ class KindleSender:
         smtp_port: int,
         smtp_user: str,
         smtp_password: str,
+        test_mode: bool = False,
     ):
         """
         Initialize Kindle sender.
@@ -27,12 +28,14 @@ class KindleSender:
             smtp_port: SMTP server port (e.g., 587 for TLS)
             smtp_user: SMTP username/email
             smtp_password: SMTP password (use app password for Gmail)
+            test_mode: If True, only log email details without actually sending
         """
         self.kindle_email = kindle_email
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
         self.smtp_user = smtp_user
         self.smtp_password = smtp_password
+        self.test_mode = test_mode
 
     def send_epub(
         self,
@@ -72,6 +75,27 @@ class KindleSender:
         """
         if not epub_paths:
             return False
+
+        # Test mode: just log the email details
+        if self.test_mode:
+            print("=" * 80)
+            print("TEST MODE - Email would be sent with the following details:")
+            print("=" * 80)
+            print(f"From: {self.smtp_user}")
+            print(f"To: {self.kindle_email}")
+            print(f"Subject: {subject or 'Story Delivery'}")
+            print(f"Title: {title or 'N/A'}")
+            print(f"Number of attachments: {len(epub_paths)}")
+            print("\nAttachments:")
+            for i, epub_path in enumerate(epub_paths, 1):
+                if os.path.exists(epub_path):
+                    size_bytes = os.path.getsize(epub_path)
+                    size_kb = size_bytes / 1024
+                    print(f"  {i}. {os.path.basename(epub_path)} ({size_kb:.1f} KB)")
+                else:
+                    print(f"  {i}. {os.path.basename(epub_path)} (FILE NOT FOUND)")
+            print("=" * 80)
+            return True
 
         try:
             # Create message
@@ -127,11 +151,14 @@ class KindleSender:
             SMTP_PORT
             SMTP_USER
             SMTP_PASSWORD
+            TEST_MODE (optional, set to "true" to enable test mode)
         """
+        test_mode = os.environ.get("TEST_MODE", "false").lower() == "true"
         return cls(
             kindle_email=os.environ["KINDLE_EMAIL"],
             smtp_host=os.environ["SMTP_HOST"],
             smtp_port=int(os.environ["SMTP_PORT"]),
             smtp_user=os.environ["SMTP_USER"],
             smtp_password=os.environ["SMTP_PASSWORD"],
+            test_mode=test_mode,
         )
