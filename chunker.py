@@ -192,33 +192,31 @@ class LLMChunker(ChunkingStrategy):
                 paragraph_positions.append(current_pos)
                 current_pos += len(para) + 2  # +2 for the double newline
 
-        prompt = f"""Analyze this story and identify {estimated_chunks - 1} natural break point(s) for splitting into reading chunks.
+        prompt = f"""Analyze this story and identify natural break point(s) for splitting into reading chunks.
 
-Target: ~{self.target_words} words per chunk (preferred range: {self.min_words}-{self.max_words} words)
+Target: ~{self.target_words} words per chunk (flexible)
 Total: ~{total_words} words, {len(paragraphs)} paragraphs
 
 CRITICAL PRIORITIES - Look for these IN ORDER:
-1. **Scene transitions** - Character moves to a completely different location or time passes significantly
-2. **Resolution of conflicts** - After an action sequence/fight ENDS and before the next begins
-3. **Perspective shifts** - POV changes to a different character
-4. **Completed emotional arcs** - After a character completes an internal transformation/realization, NOT during it
+1. **EXPLICIT SCENE BREAKS** - Paragraphs containing ONLY "--", "* * *", or "═══" (these are MANDATORY breaks, use them even if far from target)
+2. **Scene transitions** - Character moves to completely different location or significant time passage
+3. **Resolution of conflicts** - After action sequence/fight ENDS and before next begins
+4. **Perspective shifts** - POV changes to different character
+5. **Completed emotional arcs** - After character completes internal transformation, NOT during it
 
 EXPLICITLY AVOID (these are BAD breaks):
-- Mid-combat: Character is actively fighting/fleeing
-- Mid-dialogue: Characters are in conversation
-- Mid-transformation: Character is in the middle of an emotional/psychological change
-- Mid-climax: During the peak of tension (wait for resolution)
+- Mid-combat: Character actively fighting/fleeing
+- Mid-dialogue: Characters in conversation
+- Mid-transformation: Character in middle of emotional/psychological change
+- Mid-climax: During peak of tension (wait for resolution)
 - Mid-flashback: Inside parenthetical glimpses or memory sequences
 
-GOOD break examples:
-- "She left the room." → [break] → "The next morning..."
-- "The fight was over." → [break] → "Later, in the camp..."
-- Character finishes internal revelation → [break] → Returns to external action
-
-If no {estimated_chunks - 1} ideal breaks exist within range:
-- Prefer FEWER breaks with LONGER chunks over bad breaks
-- Can go 20-30% over target to hit a proper scene boundary
-- Narrative flow matters more than exact word counts
+FLEXIBILITY RULES:
+- Explicit scene breaks (---, * * *) ALWAYS take priority, even if chunks are unequal
+- Can create chunks as small as 2000 words or as large as 8000 words if it hits a proper scene break
+- Better to have 2500 + 4500 word split at a real scene break than 3500 + 3500 at a bad break
+- If multiple good breaks exist, prefer the one closest to target
+- Narrative coherence > word count balance
 
 For each break point:
 BREAK_PARA: <number>
@@ -256,6 +254,14 @@ Text with paragraph numbers:
                     if 1 <= para_num <= len(paragraphs):
                         # Find position of this paragraph in original text
                         pos = paragraph_positions[para_num] if para_num < len(paragraph_positions) else paragraph_positions[-1]
+
+                        # Check if this would create a tiny chunk at the end (< 500 words)
+                        remaining_text = text[pos:]
+                        remaining_words = self.count_words(remaining_text)
+                        if remaining_words < 500:
+                            print(f"Skipping break at paragraph {para_num} - would create tiny {remaining_words} word chunk")
+                            continue
+
                         print(f"LLM identified break at paragraph {para_num} (position {pos})")
                         break_points.append(pos)
                 except (ValueError, IndexError) as e:
@@ -321,13 +327,13 @@ Text with paragraph numbers:
 
     def _create_recap(self, previous_chunk: str) -> str:
         """Create a recap from the end of the previous chunk."""
-        # Get last 3-5 sentences or last ~150 words
+        # Get last 5-10 sentences or last ~250 words
         sentences = re.split(r'(?<=[.!?])\s+', previous_chunk)
 
-        # Take last 3-5 sentences, but cap at ~150 words
+        # Take last 5-10 sentences, but cap at ~250 words
         recap_sentences = []
         word_count = 0
-        target_words = 150
+        target_words = 250
 
         for sentence in reversed(sentences):
             sent_words = self.count_words(sentence)
@@ -335,7 +341,7 @@ Text with paragraph numbers:
                 break
             recap_sentences.insert(0, sentence)
             word_count += sent_words
-            if len(recap_sentences) >= 5:
+            if len(recap_sentences) >= 10:
                 break
 
         recap_text = " ".join(recap_sentences).strip()

@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(poetry run python:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(grep:*)"
     ]
   },
   "enableAllProjectMcpServers": false
