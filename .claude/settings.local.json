@@ -5,7 +5,8 @@
       "Bash(awk:*)",
       "Bash(grep:*)",
       "Bash(./update-secrets.sh)",
-      "Bash(poetry run modal:*)"
+      "Bash(poetry run modal:*)",
+      "Bash(unzip:*)"
     ]
   },
   "enableAllProjectMcpServers": false
