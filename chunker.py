@@ -197,29 +197,32 @@ class LLMChunker(ChunkingStrategy):
 Target: ~{self.target_words} words per chunk (preferred range: {self.min_words}-{self.max_words} words)
 Total: ~{total_words} words, {len(paragraphs)} paragraphs
 
-CRITICAL PRIORITIES (in order):
-1. **Breaks in action** - Pause between action sequences, NOT in the middle of fights/chases
-2. **Scene changes** - Clear transitions to new locations, times, or situations
-3. **Perspective shifts** - Changes in POV character or narrative focus
-4. **Chapter/section breaks** - Existing breaks marked by "* * *" or similar
-5. **Emotional beats** - Resolution of tension before new conflict begins
+CRITICAL PRIORITIES - Look for these IN ORDER:
+1. **Scene transitions** - Character moves to a completely different location or time passes significantly
+2. **Resolution of conflicts** - After an action sequence/fight ENDS and before the next begins
+3. **Perspective shifts** - POV changes to a different character
+4. **Completed emotional arcs** - After a character completes an internal transformation/realization, NOT during it
 
-AVOID splitting:
-- In the middle of combat or action sequences
-- During active dialogue exchanges
-- In the middle of a character's internal monologue
-- During rising tension (wait for the peak/resolution)
+EXPLICITLY AVOID (these are BAD breaks):
+- Mid-combat: Character is actively fighting/fleeing
+- Mid-dialogue: Characters are in conversation
+- Mid-transformation: Character is in the middle of an emotional/psychological change
+- Mid-climax: During the peak of tension (wait for resolution)
+- Mid-flashback: Inside parenthetical glimpses or memory sequences
 
-If you cannot find {estimated_chunks - 1} ideal break(s) within the target range, it's OK to:
-- Suggest fewer breaks with longer chunks
-- Go slightly outside the target range to hit a natural break
-- Prefer narrative coherence over hitting exact word counts
+GOOD break examples:
+- "She left the room." → [break] → "The next morning..."
+- "The fight was over." → [break] → "Later, in the camp..."
+- Character finishes internal revelation → [break] → Returns to external action
 
-Respond with paragraph number(s) where you'd split, and explain what makes each a strong narrative break.
+If no {estimated_chunks - 1} ideal breaks exist within range:
+- Prefer FEWER breaks with LONGER chunks over bad breaks
+- Can go 20-30% over target to hit a proper scene boundary
+- Narrative flow matters more than exact word counts
 
-Format:
-BREAK_PARA: <paragraph_number>
-REASON: <specific explanation of the narrative break - what ends and what begins>
+For each break point:
+BREAK_PARA: <number>
+REASON: Scene/action that ENDS before break | Scene/action that BEGINS after break
 
 Text with paragraph numbers:
 {numbered_text}"""
@@ -231,6 +234,13 @@ Text with paragraph numbers:
         )
 
         response_text = response.content[0].text
+
+        # Print Claude's reasoning for debugging
+        print("\n" + "="*80)
+        print("CLAUDE'S ANALYSIS:")
+        print("="*80)
+        print(response_text)
+        print("="*80 + "\n")
 
         if "NO_BREAKS_NEEDED" in response_text or "NO BREAKS" in response_text:
             return []

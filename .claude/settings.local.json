@@ -1,8 +1,9 @@
 {
-  "enableAllProjectMcpServers": false,
   "permissions": {
     "allow": [
-      "Bash(poetry run python:*)"
+      "Bash(poetry run python:*)",
+      "Bash(awk:*)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": false
 }
