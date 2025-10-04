@@ -177,19 +177,32 @@ class PasswordProtectedURLStrategy(EmailParsingStrategy):
             if password_form and password:
                 print(f"Password-protected post detected, submitting password...")
 
+                # Extract the form action URL
+                form_action = password_form.get('action', '')
+                if form_action:
+                    # Make it an absolute URL if it's relative
+                    from urllib.parse import urljoin
+                    post_url = urljoin(url, form_action)
+                else:
+                    # Default to wp-login.php if no action specified
+                    from urllib.parse import urljoin
+                    post_url = urljoin(url, '/wp-login.php?action=postpass')
+
+                print(f"Submitting password to: {post_url}")
+
                 # WordPress password-protected posts use 'post_password' field
                 form_data = {
                     'post_password': password,
                     'Submit': 'Enter'
                 }
 
-                # POST to the same URL with password
-                response = session.post(url, data=form_data, timeout=30)
+                # POST to the form action URL (WordPress will set cookie and redirect back)
+                response = session.post(post_url, data=form_data, timeout=30, allow_redirects=True)
                 response.raise_for_status()
 
-                # Re-parse with authenticated session
+                # Re-parse with authenticated session (should now have the unlocked content)
                 soup = BeautifulSoup(response.content, "html.parser")
-                print(f"Password submitted successfully")
+                print(f"Password submitted successfully, redirected to: {response.url}")
 
             # Extract the main content area
             content_html = self._extract_post_content(soup)
