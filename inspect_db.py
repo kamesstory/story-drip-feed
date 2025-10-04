@@ -68,7 +68,10 @@ def inspect_database():
     next_chunk = db.get_next_unsent_chunk()
     if next_chunk:
         print("📬 NEXT CHUNK TO BE SENT:")
-        print(f"  Story: {next_chunk['title']}")
+        print(f"  Story ID: {next_chunk['story_id']}")
+        print(f"  Chunk ID: {next_chunk['id']}")
+        print(f"  Title: {next_chunk['title']}")
+        print(f"  Author: {next_chunk['author']}")
         print(f"  Part: {next_chunk['chunk_number']}/{next_chunk['total_chunks']}")
         print(f"  Word Count: {next_chunk['word_count']}")
         print(f"  Preview: {next_chunk['chunk_text'][:200]}...")

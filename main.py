@@ -223,7 +223,8 @@ def send_daily_chunk():
         print("No unsent chunks found")
         return
 
-    print(f"Sending chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} of story: {next_chunk['title']}")
+    print(f"📤 Sending chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}: {next_chunk['title']} by {next_chunk['author']}")
+    print(f"   Chunk ID: {next_chunk['id']}, Words: {next_chunk['word_count']}")
 
     try:
         # Generate EPUB for this chunk
@@ -254,15 +255,18 @@ def send_daily_chunk():
 
             if all_sent:
                 db.update_story_status(next_chunk["story_id"], StoryStatus.SENT)
-                print(f"All chunks sent for story: {next_chunk['title']}")
+                print(f"✅ All chunks sent for Story ID {next_chunk['story_id']}: {next_chunk['title']}")
+            else:
+                remaining = sum(1 for chunk in all_chunks if not chunk["sent_to_kindle_at"])
+                print(f"✅ Successfully sent chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
+                print(f"   {remaining} chunk(s) remaining for this story")
 
             volume.commit()
-            print(f"Successfully sent chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']}")
         else:
-            print(f"Failed to send chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']}")
+            print(f"❌ Failed to send chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
 
     except Exception as e:
-        print(f"Error sending chunk: {e}")
+        print(f"❌ Error sending chunk from Story ID {next_chunk.get('story_id', 'unknown')}: {e}")
 
 
 @app.local_entrypoint()
