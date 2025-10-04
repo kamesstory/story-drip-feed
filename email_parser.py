@@ -158,45 +158,96 @@ class PasswordProtectedURLStrategy(EmailParsingStrategy):
         return None
 
     def _fetch_url_content(self, url: str, password: Optional[str] = None) -> Optional[str]:
-        """Fetch content from URL."""
+        """Fetch content from URL, handling WordPress password-protected posts."""
         try:
-            # Add password to request if provided
-            data = {}
-            if password:
-                # Common password field names
-                data = {"password": password, "pass": password, "code": password}
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            })
 
-            response = requests.post(url, data=data, timeout=30) if password else requests.get(url, timeout=30)
+            # First, try to GET the page
+            response = session.get(url, timeout=30)
             response.raise_for_status()
 
-            # Parse HTML
             soup = BeautifulSoup(response.content, "html.parser")
 
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
+            # Check if password is required
+            password_form = soup.find("form", class_="post-password-form")
 
-            text = soup.get_text()
+            if password_form and password:
+                print(f"Password-protected post detected, submitting password...")
 
-            # Clean up whitespace
-            lines = (line.strip() for line in text.splitlines())
-            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-            text = "\n".join(chunk for chunk in chunks if chunk)
+                # WordPress password-protected posts use 'post_password' field
+                form_data = {
+                    'post_password': password,
+                    'Submit': 'Enter'
+                }
 
-            return text
+                # POST to the same URL with password
+                response = session.post(url, data=form_data, timeout=30)
+                response.raise_for_status()
+
+                # Re-parse with authenticated session
+                soup = BeautifulSoup(response.content, "html.parser")
+                print(f"Password submitted successfully")
+
+            # Extract the main content area
+            content_html = self._extract_post_content(soup)
+
+            if not content_html:
+                print("Warning: Could not find post content, returning full body")
+                # Fallback to body content
+                content_html = soup.find("body")
+
+            if not content_html:
+                return None
+
+            # Return HTML with styling preserved
+            return str(content_html)
 
         except Exception as e:
             print(f"Failed to fetch URL {url}: {e}")
             return None
+
+    def _extract_post_content(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+        """Extract the main post content area from HTML."""
+        # Common WordPress/blog post content selectors (in order of preference)
+        selectors = [
+            "article .entry-content",
+            ".entry-content",
+            ".post-content",
+            ".article-content",
+            "article .content",
+            ".chapter-content",
+            "article",
+            "main",
+        ]
+
+        for selector in selectors:
+            content = soup.select_one(selector)
+            if content:
+                print(f"Found content using selector: {selector}")
+
+                # Remove unwanted elements
+                for unwanted in content.select("script, style, nav, .sharedaddy, .jp-relatedposts, .comments, footer"):
+                    unwanted.decompose()
+
+                # Check if content has substantial text
+                text_content = content.get_text(strip=True)
+                if len(text_content) > 500:  # At least 500 characters
+                    return content
+
+        return None
 
 
 class EmailParser:
     """Main email parser that tries multiple strategies."""
 
     def __init__(self):
+        # Try URL strategy first - if there's a URL, prefer fetching it over inline content
         self.strategies = [
-            InlineTextStrategy(),
             PasswordProtectedURLStrategy(),
+            InlineTextStrategy(),
         ]
 
     def parse_email(self, email_data: Dict[str, Any]) -> Optional[Dict[str, str]]:

@@ -2,6 +2,7 @@ from ebooklib import epub
 from typing import Optional
 import os
 from datetime import datetime
+import re
 
 
 class EPUBGenerator:
@@ -55,8 +56,8 @@ class EPUBGenerator:
             lang="en"
         )
 
-        # Convert text to HTML paragraphs
-        html_content = self._text_to_html(text)
+        # Convert text to HTML (handles both plain text and HTML input)
+        html_content = self._prepare_html_content(text)
         chapter.content = f"<h1>{full_title}</h1>{html_content}"
 
         # Add chapter to book
@@ -85,6 +86,22 @@ class EPUBGenerator:
         epub.write_epub(filepath, book)
 
         return filepath
+
+    def _prepare_html_content(self, text: str) -> str:
+        """Prepare content for EPUB - handles both HTML and plain text."""
+        # Check if content is already HTML
+        if self._is_html(text):
+            # Content is already HTML, use it directly
+            return text
+        else:
+            # Plain text, convert to HTML paragraphs
+            return self._text_to_html(text)
+
+    def _is_html(self, text: str) -> bool:
+        """Check if text contains HTML tags."""
+        # Simple heuristic: if it has HTML tags, treat as HTML
+        html_pattern = r'<(?:p|div|article|section|h[1-6]|br|span|em|strong|a)\b[^>]*>'
+        return bool(re.search(html_pattern, text, re.IGNORECASE))
 
     def _text_to_html(self, text: str) -> str:
         """Convert plain text to HTML paragraphs."""
