@@ -45,18 +45,70 @@ modal deploy main.py
 
 **Test locally:**
 ```bash
+# Process a test story (chunks but doesn't send)
 modal run main.py
+
+# Manually send next unsent chunk
+modal run main.py::send_daily_chunk
+
+# Inspect database state
+modal run inspect_db.py
+
+# Test chunker on example files
+poetry run python test_chunker.py examples/inputs/pale-lights-example-1.txt 5000
+
+# Update Modal secrets from .env
+./update-secrets.sh
 ```
 
-**Create Modal secret:**
+**Create/Update Modal secrets:**
 ```bash
+# Initial setup
 modal secret create story-prep-secrets \
   KINDLE_EMAIL=your-kindle@kindle.com \
   SMTP_HOST=smtp.gmail.com \
   SMTP_PORT=587 \
   SMTP_USER=your-email@gmail.com \
-  SMTP_PASSWORD=your-app-password
+  SMTP_PASSWORD=your-app-password \
+  TEST_MODE=true \
+  USE_LLM_CHUNKER=true \
+  TARGET_WORDS=5000 \
+  ANTHROPIC_API_KEY=your-anthropic-key
+
+# Or use the convenience script
+./update-secrets.sh
 ```
+
+## Testing & Verification
+
+**Full workflow test:**
+```bash
+# 1. Process a test story
+modal run main.py
+# ✅ Should output: "Successfully processed and chunked: Test Story. Chunks will be sent daily."
+
+# 2. Inspect database to see pending chunks
+modal run inspect_db.py
+# ✅ Should show story with "⏳ PENDING" chunks
+
+# 3. Manually trigger daily send (simulates scheduled function)
+modal run main.py::send_daily_chunk
+# ✅ Should send chunk 1/N (in TEST_MODE, logs email details instead of sending)
+
+# 4. Run again to send next chunk
+modal run main.py::send_daily_chunk
+# ✅ Should send chunk 2/N
+
+# 5. Verify all sent
+modal run inspect_db.py
+# ✅ Should show all chunks as "✅ SENT" and output "No pending chunks - all caught up!"
+```
+
+**Monitoring production:**
+- View scheduled function runs: https://modal.com/apps
+- Check function logs in Modal dashboard
+- Daily sends happen automatically at 8am UTC
+- Failed deliveries retry every 6 hours (max 3 attempts)
 
 ## Email Ingestion Setup
 
