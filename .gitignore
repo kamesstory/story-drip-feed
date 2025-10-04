@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.sqlite
+*.db
+.env
+.DS_Store
+*.epub
+test_data/
+.modal_cache/
