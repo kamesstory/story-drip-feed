@@ -33,14 +33,20 @@ Automated pipeline that receives Patreon stories via email, intelligently chunks
 
 **Setup:**
 ```bash
-pip install -r requirements.txt
-modal token new
+# Install dependencies with Poetry
+poetry install
+
+# Authenticate with Modal
+poetry run modal token new
+
 # Copy .env.example to .env and configure
+cp .env.example .env
+# Edit .env with your credentials
 ```
 
 **Deploy:**
 ```bash
-modal deploy main.py
+poetry run modal deploy main.py
 ```
 
 **Test locally:**
