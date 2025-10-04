@@ -6,17 +6,7 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Source the .env file
-export $(cat .env | grep -v '^#' | xargs)
-
-# Update Modal secret
-modal secret create story-prep-secrets \
-  --force \
-  KINDLE_EMAIL="$KINDLE_EMAIL" \
-  SMTP_HOST="$SMTP_HOST" \
-  SMTP_PORT="$SMTP_PORT" \
-  SMTP_USER="$SMTP_USER" \
-  SMTP_PASSWORD="$SMTP_PASSWORD" \
-  TEST_MODE="${TEST_MODE:-false}"
+# Update Modal secret from .env file
+poetry run modal secret create story-prep-secrets --force --from-dotenv .env
 
 echo "✓ Modal secrets updated successfully"
