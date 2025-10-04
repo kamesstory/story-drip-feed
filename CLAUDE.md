@@ -90,23 +90,23 @@ poetry run modal secret create story-prep-secrets \
 **Full workflow test:**
 ```bash
 # 1. Process a test story
-modal run main.py
+poetry run modal run main.py
 # ✅ Should output: "Successfully processed and chunked: Test Story. Chunks will be sent daily."
 
 # 2. Inspect database to see pending chunks
-modal run inspect_db.py
+poetry run modal run inspect_db.py
 # ✅ Should show story with "⏳ PENDING" chunks
 
 # 3. Manually trigger daily send (simulates scheduled function)
-modal run main.py::send_daily_chunk
+poetry run modal run main.py::send_daily_chunk
 # ✅ Should send chunk 1/N (in TEST_MODE, logs email details instead of sending)
 
 # 4. Run again to send next chunk
-modal run main.py::send_daily_chunk
+poetry run modal run main.py::send_daily_chunk
 # ✅ Should send chunk 2/N
 
 # 5. Verify all sent
-modal run inspect_db.py
+poetry run modal run inspect_db.py
 # ✅ Should show all chunks as "✅ SENT" and output "No pending chunks - all caught up!"
 ```
 
