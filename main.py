@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 from database import Database, StoryStatus
 from email_parser import EmailParser
-from chunker import chunk_story
+from chunker import chunk_story, LLMChunker, SimpleChunker
 from epub_generator import EPUBGenerator
 from kindle_sender import KindleSender
 
@@ -24,6 +24,7 @@ image = (
         "lxml",
         "python-dateutil",
         "requests",
+        "anthropic",
     )
     .add_local_file("database.py", "/root/database.py")
     .add_local_file("email_parser.py", "/root/email_parser.py")
@@ -87,8 +88,18 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
         # Update status to processing
         db.update_story_status(story_id, StoryStatus.PROCESSING)
 
-        # Chunk the story
-        chunks = chunk_story(story_data["text"], target_words=10000)
+        # Chunk the story - use LLM chunker if enabled
+        use_llm = os.environ.get("USE_LLM_CHUNKER", "false").lower() == "true"
+        target_words = int(os.environ.get("TARGET_WORDS", "5000"))
+
+        if use_llm:
+            print(f"Using LLM chunker with target {target_words} words")
+            chunker = LLMChunker(target_words=target_words)
+            chunks = chunker.chunk_text(story_data["text"])
+        else:
+            print(f"Using simple chunker with target {target_words} words")
+            chunks = chunk_story(story_data["text"], target_words=target_words)
+
         total_words = sum(word_count for _, word_count in chunks)
         db.update_word_count(story_id, total_words)
 

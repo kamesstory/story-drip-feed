@@ -1,6 +1,8 @@
 import re
-from typing import List, Tuple
+import os
+from typing import List, Tuple, Optional
 from abc import ABC, abstractmethod
+import anthropic
 
 
 class ChunkingStrategy(ABC):
@@ -117,14 +119,224 @@ class SimpleChunker(ChunkingStrategy):
         return [s.strip() for s in result if s.strip()]
 
 
-# Placeholder for future intelligent chunking strategies
-# class LLMChunker(ChunkingStrategy):
-#     """Uses LLM to identify natural break points in stories."""
-#     pass
-#
-# class HybridChunker(ChunkingStrategy):
-#     """Combines pattern recognition with LLM analysis."""
-#     pass
+class LLMChunker(ChunkingStrategy):
+    """Uses LLM (Claude) to identify natural break points in stories."""
+
+    def __init__(
+        self,
+        target_words: int = 5000,
+        tolerance: float = 0.1,
+        api_key: Optional[str] = None,
+        fallback_to_simple: bool = True,
+    ):
+        """
+        Args:
+            target_words: Target word count per chunk
+            tolerance: Acceptable deviation (0.1 = ±10%)
+            api_key: Anthropic API key (defaults to ANTHROPIC_API_KEY env var)
+            fallback_to_simple: If True, fall back to SimpleChunker on API failure
+        """
+        self.target_words = target_words
+        self.min_words = int(target_words * (1 - tolerance))
+        self.max_words = int(target_words * (1 + tolerance))
+        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        self.fallback_to_simple = fallback_to_simple
+        self.client = anthropic.Anthropic(api_key=self.api_key) if self.api_key else None
+
+    def chunk_text(self, text: str) -> List[Tuple[str, int]]:
+        """
+        Chunk text using LLM to identify natural break points.
+
+        Returns:
+            List of tuples (chunk_text, word_count)
+        """
+        if not self.client:
+            print("Warning: No Anthropic API key found, falling back to SimpleChunker")
+            return self._fallback_chunk(text)
+
+        try:
+            # Analyze text with Claude to find break points
+            break_points = self._find_break_points(text)
+
+            if not break_points:
+                print("Warning: No break points identified, falling back to SimpleChunker")
+                return self._fallback_chunk(text)
+
+            # Split text at identified break points
+            chunks = self._split_at_break_points(text, break_points)
+            return chunks
+
+        except Exception as e:
+            print(f"Error using LLM chunker: {e}")
+            if self.fallback_to_simple:
+                print("Falling back to SimpleChunker")
+                return self._fallback_chunk(text)
+            raise
+
+    def _find_break_points(self, text: str) -> List[int]:
+        """Use Claude to identify natural break points in the text."""
+        total_words = self.count_words(text)
+
+        # Calculate approximately how many chunks we need
+        estimated_chunks = max(1, round(total_words / self.target_words))
+
+        # Split into paragraphs and number them
+        paragraphs = re.split(r'\n\s*\n', text)
+        numbered_text = ""
+        paragraph_positions = [0]  # Character positions where each paragraph starts
+        current_pos = 0
+
+        for i, para in enumerate(paragraphs):
+            if para.strip():
+                numbered_text += f"[Para {i+1}]\n{para}\n\n"
+                paragraph_positions.append(current_pos)
+                current_pos += len(para) + 2  # +2 for the double newline
+
+        prompt = f"""Analyze this story and identify {estimated_chunks - 1} natural break point(s) for splitting into reading chunks.
+
+Target: ~{self.target_words} words per chunk (preferred range: {self.min_words}-{self.max_words} words)
+Total: ~{total_words} words, {len(paragraphs)} paragraphs
+
+CRITICAL PRIORITIES (in order):
+1. **Breaks in action** - Pause between action sequences, NOT in the middle of fights/chases
+2. **Scene changes** - Clear transitions to new locations, times, or situations
+3. **Perspective shifts** - Changes in POV character or narrative focus
+4. **Chapter/section breaks** - Existing breaks marked by "* * *" or similar
+5. **Emotional beats** - Resolution of tension before new conflict begins
+
+AVOID splitting:
+- In the middle of combat or action sequences
+- During active dialogue exchanges
+- In the middle of a character's internal monologue
+- During rising tension (wait for the peak/resolution)
+
+If you cannot find {estimated_chunks - 1} ideal break(s) within the target range, it's OK to:
+- Suggest fewer breaks with longer chunks
+- Go slightly outside the target range to hit a natural break
+- Prefer narrative coherence over hitting exact word counts
+
+Respond with paragraph number(s) where you'd split, and explain what makes each a strong narrative break.
+
+Format:
+BREAK_PARA: <paragraph_number>
+REASON: <specific explanation of the narrative break - what ends and what begins>
+
+Text with paragraph numbers:
+{numbered_text}"""
+
+        response = self.client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        response_text = response.content[0].text
+
+        if "NO_BREAKS_NEEDED" in response_text or "NO BREAKS" in response_text:
+            return []
+
+        # Parse paragraph numbers from response
+        break_points = []
+        for line in response_text.split('\n'):
+            if line.startswith('BREAK_PARA:'):
+                try:
+                    para_num_str = line.split('BREAK_PARA:')[1].strip()
+                    para_num = int(''.join(filter(str.isdigit, para_num_str)))
+
+                    if 1 <= para_num <= len(paragraphs):
+                        # Find position of this paragraph in original text
+                        pos = paragraph_positions[para_num] if para_num < len(paragraph_positions) else paragraph_positions[-1]
+                        print(f"LLM identified break at paragraph {para_num} (position {pos})")
+                        break_points.append(pos)
+                except (ValueError, IndexError) as e:
+                    continue
+
+        return sorted(break_points)
+
+    def _split_at_break_points(self, text: str, break_points: List[int]) -> List[Tuple[str, int]]:
+        """Split text at the identified break points, adjusting to paragraph boundaries."""
+        if not break_points:
+            return [(text, self.count_words(text))]
+
+        # Find paragraph boundaries (double newlines)
+        para_boundaries = [0]
+        for match in re.finditer(r'\n\s*\n', text):
+            para_boundaries.append(match.end())
+        para_boundaries.append(len(text))
+
+        # Adjust each break point to nearest paragraph boundary within reasonable distance
+        adjusted_breaks = [0]
+        max_adjustment = 2000  # Don't adjust more than 2000 characters away
+
+        for break_point in break_points:
+            # Find paragraph boundaries within reasonable distance
+            nearby_boundaries = [
+                pb for pb in para_boundaries
+                if abs(pb - break_point) <= max_adjustment
+            ]
+
+            if nearby_boundaries:
+                # Find closest paragraph boundary within range
+                closest = min(nearby_boundaries, key=lambda x: abs(x - break_point))
+                if closest not in adjusted_breaks:
+                    adjusted_breaks.append(closest)
+            else:
+                # No nearby paragraph boundary, use the break point as-is
+                if break_point not in adjusted_breaks:
+                    adjusted_breaks.append(break_point)
+
+        adjusted_breaks.append(len(text))
+        adjusted_breaks = sorted(set(adjusted_breaks))
+
+        # Create chunks with recaps
+        chunks = []
+        previous_chunk_text = None
+
+        for i in range(len(adjusted_breaks) - 1):
+            start = adjusted_breaks[i]
+            end = adjusted_breaks[i + 1]
+            chunk_text = text[start:end].strip()
+
+            if chunk_text:
+                # Add recap from previous chunk (except for first chunk)
+                if previous_chunk_text and i > 0:
+                    recap = self._create_recap(previous_chunk_text)
+                    chunk_text = recap + "\n\n" + chunk_text
+
+                word_count = self.count_words(chunk_text)
+                chunks.append((chunk_text, word_count))
+                previous_chunk_text = text[start:end].strip()  # Store original without recap
+
+        return chunks
+
+    def _create_recap(self, previous_chunk: str) -> str:
+        """Create a recap from the end of the previous chunk."""
+        # Get last 3-5 sentences or last ~150 words
+        sentences = re.split(r'(?<=[.!?])\s+', previous_chunk)
+
+        # Take last 3-5 sentences, but cap at ~150 words
+        recap_sentences = []
+        word_count = 0
+        target_words = 150
+
+        for sentence in reversed(sentences):
+            sent_words = self.count_words(sentence)
+            if word_count + sent_words > target_words and recap_sentences:
+                break
+            recap_sentences.insert(0, sentence)
+            word_count += sent_words
+            if len(recap_sentences) >= 5:
+                break
+
+        recap_text = " ".join(recap_sentences).strip()
+
+        # Format as a recap block
+        return f"───────────────────────────────────────\n*Previously:*\n> {recap_text}\n───────────────────────────────────────"
+
+    def _fallback_chunk(self, text: str) -> List[Tuple[str, int]]:
+        """Fallback to SimpleChunker."""
+        simple = SimpleChunker(target_words=self.target_words)
+        return simple.chunk_text(text)
 
 
 def chunk_story(text: str, target_words: int = 10000,
