@@ -50,18 +50,55 @@ class Database:
                 )
             """)
 
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS story_chunks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    story_id INTEGER NOT NULL,
-                    chunk_number INTEGER NOT NULL,
-                    word_count INTEGER,
-                    epub_path TEXT,
-                    sent_to_kindle_at TIMESTAMP,
-                    FOREIGN KEY (story_id) REFERENCES stories(id),
-                    UNIQUE(story_id, chunk_number)
-                )
-            """)
+            # Check if story_chunks table needs migration
+            cursor = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='story_chunks'")
+            existing_schema = cursor.fetchone()
+
+            if existing_schema and 'chunk_text' not in existing_schema[0]:
+                # Old schema exists, need to migrate
+                print("Migrating story_chunks table to new schema...")
+                conn.execute("ALTER TABLE story_chunks RENAME TO story_chunks_old")
+
+                conn.execute("""
+                    CREATE TABLE story_chunks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        story_id INTEGER NOT NULL,
+                        chunk_number INTEGER NOT NULL,
+                        total_chunks INTEGER NOT NULL,
+                        word_count INTEGER,
+                        chunk_text TEXT NOT NULL DEFAULT '',
+                        epub_path TEXT,
+                        sent_to_kindle_at TIMESTAMP,
+                        FOREIGN KEY (story_id) REFERENCES stories(id),
+                        UNIQUE(story_id, chunk_number)
+                    )
+                """)
+
+                # Copy data from old table (chunk_text will be empty for old records)
+                conn.execute("""
+                    INSERT INTO story_chunks (id, story_id, chunk_number, total_chunks, word_count, epub_path, sent_to_kindle_at)
+                    SELECT id, story_id, chunk_number, 1, word_count, epub_path, sent_to_kindle_at
+                    FROM story_chunks_old
+                """)
+
+                conn.execute("DROP TABLE story_chunks_old")
+                print("Migration complete")
+            else:
+                # Create table with new schema
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS story_chunks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        story_id INTEGER NOT NULL,
+                        chunk_number INTEGER NOT NULL,
+                        total_chunks INTEGER NOT NULL,
+                        word_count INTEGER,
+                        chunk_text TEXT NOT NULL,
+                        epub_path TEXT,
+                        sent_to_kindle_at TIMESTAMP,
+                        FOREIGN KEY (story_id) REFERENCES stories(id),
+                        UNIQUE(story_id, chunk_number)
+                    )
+                """)
 
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_stories_status
@@ -124,14 +161,14 @@ class Database:
                 WHERE id = ?
             """, (word_count, story_id))
 
-    def create_chunk(self, story_id: int, chunk_number: int,
-                    word_count: int, epub_path: Optional[str] = None) -> int:
+    def create_chunk(self, story_id: int, chunk_number: int, total_chunks: int,
+                    chunk_text: str, word_count: int, epub_path: Optional[str] = None) -> int:
         """Create a story chunk record."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
-                INSERT INTO story_chunks (story_id, chunk_number, word_count, epub_path)
-                VALUES (?, ?, ?, ?)
-            """, (story_id, chunk_number, word_count, epub_path))
+                INSERT INTO story_chunks (story_id, chunk_number, total_chunks, chunk_text, word_count, epub_path)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (story_id, chunk_number, total_chunks, chunk_text, word_count, epub_path))
             return cursor.lastrowid
 
     def mark_chunk_sent(self, chunk_id: int):
@@ -181,3 +218,18 @@ class Database:
                 ORDER BY received_at ASC
             """, (StoryStatus.PENDING.value,))
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_next_unsent_chunk(self) -> Optional[Dict[str, Any]]:
+        """Get the next chunk that hasn't been sent to Kindle yet."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT sc.*, s.title, s.author
+                FROM story_chunks sc
+                JOIN stories s ON sc.story_id = s.id
+                WHERE sc.sent_to_kindle_at IS NULL
+                AND s.status = ?
+                ORDER BY s.received_at ASC, sc.chunk_number ASC
+                LIMIT 1
+            """, (StoryStatus.CHUNKED.value,))
+            row = cursor.fetchone()
+            return dict(row) if row else None

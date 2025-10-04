@@ -3,7 +3,9 @@
     "allow": [
       "Bash(poetry run python:*)",
       "Bash(awk:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(./update-secrets.sh)",
+      "Bash(poetry run modal:*)"
     ]
   },
   "enableAllProjectMcpServers": false

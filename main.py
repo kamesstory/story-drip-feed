@@ -103,58 +103,27 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
         total_words = sum(word_count for _, word_count in chunks)
         db.update_word_count(story_id, total_words)
 
-        # Generate EPUBs
-        epub_gen = EPUBGenerator("/data/epubs")
-        epub_paths = epub_gen.create_multipart_epubs(
-            chunks=chunks,
-            title=story_data["title"],
-            author=story_data["author"],
-        )
-
-        # Save chunk records
-        for i, (epub_path, (_, word_count)) in enumerate(zip(epub_paths, chunks), start=1):
+        # Save chunk records to database (EPUBs will be generated on-demand when sending)
+        total_chunks = len(chunks)
+        for i, (chunk_text, word_count) in enumerate(chunks, start=1):
             db.create_chunk(
                 story_id=story_id,
                 chunk_number=i,
+                total_chunks=total_chunks,
+                chunk_text=chunk_text,
                 word_count=word_count,
-                epub_path=epub_path,
             )
 
         db.update_story_status(story_id, StoryStatus.CHUNKED)
+        volume.commit()
 
-        # Send to Kindle
-        kindle_sender = KindleSender.from_env()
-        success = kindle_sender.send_epubs(
-            epub_paths=epub_paths,
-            title=story_data["title"],
-            subject=f"Story: {story_data['title']}",
-        )
-
-        if success:
-            db.update_story_status(story_id, StoryStatus.SENT)
-            # Mark chunks as sent
-            chunk_records = db.get_story_chunks(story_id)
-            for chunk in chunk_records:
-                db.mark_chunk_sent(chunk["id"])
-
-            volume.commit()
-
-            return {
-                "status": "success",
-                "message": f"Successfully processed and sent: {story_data['title']}",
-                "story_id": story_id,
-                "chunks": len(chunks),
-                "total_words": total_words,
-            }
-        else:
-            db.update_story_status(story_id, StoryStatus.FAILED, "Failed to send to Kindle")
-            volume.commit()
-
-            return {
-                "status": "error",
-                "message": "Failed to send to Kindle",
-                "story_id": story_id,
-            }
+        return {
+            "status": "success",
+            "message": f"Successfully processed and chunked: {story_data['title']}. Chunks will be sent daily.",
+            "story_id": story_id,
+            "chunks": len(chunks),
+            "total_words": total_words,
+        }
 
     except Exception as e:
         # Log error and update status
@@ -232,6 +201,67 @@ def retry_failed_stories():
             db.increment_retry_count(story["id"])
 
     volume.commit()
+
+
+@app.function(
+    image=image,
+    volumes={"/data": volume},
+    secrets=[modal.Secret.from_name("story-prep-secrets")],
+    schedule=modal.Cron("0 8 * * *"),  # Every day at 8am UTC
+)
+def send_daily_chunk():
+    """
+    Scheduled function to send one chunk per day to Kindle.
+
+    Runs every day at 8am UTC to send the next unsent chunk.
+    """
+    db = Database("/data/stories.db")
+    next_chunk = db.get_next_unsent_chunk()
+
+    if not next_chunk:
+        print("No unsent chunks found")
+        return
+
+    print(f"Sending chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} of story: {next_chunk['title']}")
+
+    try:
+        # Generate EPUB for this chunk
+        epub_gen = EPUBGenerator("/data/epubs")
+        epub_path = epub_gen.create_epub(
+            text=next_chunk["chunk_text"],
+            title=next_chunk["title"],
+            author=next_chunk["author"],
+            chunk_number=next_chunk["chunk_number"],
+            total_chunks=next_chunk["total_chunks"],
+        )
+
+        # Send to Kindle
+        kindle_sender = KindleSender.from_env()
+        success = kindle_sender.send_epubs(
+            epub_paths=[epub_path],
+            title=next_chunk["title"],
+            subject=f"{next_chunk['title']} - Part {next_chunk['chunk_number']}/{next_chunk['total_chunks']}",
+        )
+
+        if success:
+            # Mark chunk as sent
+            db.mark_chunk_sent(next_chunk["id"])
+
+            # Check if all chunks for this story have been sent
+            all_chunks = db.get_story_chunks(next_chunk["story_id"])
+            all_sent = all([chunk["sent_to_kindle_at"] for chunk in all_chunks])
+
+            if all_sent:
+                db.update_story_status(next_chunk["story_id"], StoryStatus.SENT)
+                print(f"All chunks sent for story: {next_chunk['title']}")
+
+            volume.commit()
+            print(f"Successfully sent chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']}")
+        else:
+            print(f"Failed to send chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']}")
+
+    except Exception as e:
+        print(f"Error sending chunk: {e}")
 
 
 @app.local_entrypoint()
