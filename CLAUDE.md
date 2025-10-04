@@ -52,13 +52,13 @@ poetry run modal deploy main.py
 **Test locally:**
 ```bash
 # Process a test story (chunks but doesn't send)
-modal run main.py
+poetry run modal run main.py
 
 # Manually send next unsent chunk
-modal run main.py::send_daily_chunk
+poetry run modal run main.py::send_daily_chunk
 
 # Inspect database state
-modal run inspect_db.py
+poetry run modal run inspect_db.py
 
 # Test chunker on example files
 poetry run python test_chunker.py examples/inputs/pale-lights-example-1.txt 5000
@@ -70,7 +70,7 @@ poetry run python test_chunker.py examples/inputs/pale-lights-example-1.txt 5000
 **Create/Update Modal secrets:**
 ```bash
 # Initial setup
-modal secret create story-prep-secrets \
+poetry run modal secret create story-prep-secrets \
   KINDLE_EMAIL=your-kindle@kindle.com \
   SMTP_HOST=smtp.gmail.com \
   SMTP_PORT=587 \
@@ -81,7 +81,7 @@ modal secret create story-prep-secrets \
   TARGET_WORDS=5000 \
   ANTHROPIC_API_KEY=your-anthropic-key
 
-# Or use the convenience script
+# Or use the convenience script (recommended)
 ./update-secrets.sh
 ```
 
