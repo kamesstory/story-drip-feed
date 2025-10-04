@@ -31,6 +31,7 @@ image = (
     .add_local_file("chunker.py", "/root/chunker.py")
     .add_local_file("epub_generator.py", "/root/epub_generator.py")
     .add_local_file("kindle_sender.py", "/root/kindle_sender.py")
+    .add_local_file("examples/inputs/pale-lights-example-1.txt", "/root/examples/inputs/pale-lights-example-1.txt")
 )
 
 
@@ -271,24 +272,39 @@ def main():
 
     Run with: modal run main.py
 
-    Generates a test story with a unique email ID to avoid duplicate detection.
+    Uses Pale Lights example 1 as test story with a unique email ID to avoid duplicate detection.
     """
     # Generate unique email ID for each test run
     unique_id = str(uuid.uuid4())
 
+    # Read test story from file
+    import os
+    # Try Modal path first, then local path
+    test_file_modal = "/root/examples/inputs/pale-lights-example-1.txt"
+    test_file_local = os.path.join(os.path.dirname(__file__), "examples", "inputs", "pale-lights-example-1.txt")
+
+    test_file = test_file_modal if os.path.exists(test_file_modal) else test_file_local
+
+    if os.path.exists(test_file):
+        with open(test_file, "r") as f:
+            test_content = f.read()
+        story_title = "Pale Lights - Test Chapter"
+        story_author = "ErraticErrata"
+    else:
+        # Fallback to simple test if file doesn't exist
+        test_content = "This is a test story with some content.\n\nIt has multiple paragraphs to demonstrate the chunking functionality.\n\n" * 500
+        story_title = "Test Story"
+        story_author = "Test Author"
+
     # Example test data
     test_email = {
         "message-id": f"test-{unique_id}",
-        "subject": "Test Story",
-        "from": "Test Author <test@example.com>",
-        "text": """
-        This is a test story with some content.
-
-        It has multiple paragraphs to demonstrate the chunking functionality.
-
-        """ * 500,  # Repeat to get enough words for chunking
+        "subject": story_title,
+        "from": f"{story_author} <test@example.com>",
+        "text": test_content,
     }
 
     print(f"Testing with email ID: test-{unique_id}")
+    print(f"Story: {story_title} by {story_author}")
     result = process_story.remote(test_email)
     print(f"Result: {result}")
