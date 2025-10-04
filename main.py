@@ -1,5 +1,6 @@
 import modal
 import os
+import uuid
 from typing import Dict, Any
 
 from database import Database, StoryStatus
@@ -228,10 +229,15 @@ def main():
     Local testing entrypoint.
 
     Run with: modal run main.py
+
+    Generates a test story with a unique email ID to avoid duplicate detection.
     """
+    # Generate unique email ID for each test run
+    unique_id = str(uuid.uuid4())
+
     # Example test data
     test_email = {
-        "message-id": "test-123",
+        "message-id": f"test-{unique_id}",
         "subject": "Test Story",
         "from": "Test Author <test@example.com>",
         "text": """
@@ -242,5 +248,6 @@ def main():
         """ * 500,  # Repeat to get enough words for chunking
     }
 
+    print(f"Testing with email ID: test-{unique_id}")
     result = process_story.remote(test_email)
     print(f"Result: {result}")
