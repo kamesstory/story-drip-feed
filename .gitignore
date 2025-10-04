@@ -13,3 +13,4 @@ ENV/
 *.epub
 test_data/
 .modal_cache/
+.vscode/
