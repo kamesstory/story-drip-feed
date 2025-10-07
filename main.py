@@ -9,6 +9,7 @@ from chunker import chunk_story, LLMChunker, SimpleChunker, AgentChunker
 from content_extraction_agent import extract_content
 from epub_generator import EPUBGenerator
 from kindle_sender import KindleSender
+from file_storage import FileStorage
 
 # Create Modal app
 app = modal.App("nighttime-story-prep")
@@ -26,6 +27,7 @@ image = (
         "python-dateutil",
         "requests",
         "anthropic",
+        "pyyaml",
     )
     .add_local_file("database.py", "/root/database.py")
     .add_local_file("email_parser.py", "/root/email_parser.py")
@@ -33,6 +35,7 @@ image = (
     .add_local_file("content_extraction_agent.py", "/root/content_extraction_agent.py")
     .add_local_file("epub_generator.py", "/root/epub_generator.py")
     .add_local_file("kindle_sender.py", "/root/kindle_sender.py")
+    .add_local_file("file_storage.py", "/root/file_storage.py")
     .add_local_file("examples/inputs/pale-lights-example-1.txt", "/root/examples/inputs/pale-lights-example-1.txt")
 )
 
@@ -54,8 +57,10 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
         Dict with processing status and details
     """
     db = Database("/data/stories.db")
+    storage = FileStorage("/data")
     email_id = email_data.get("message-id", email_data.get("Message-ID", "unknown"))
 
+    story_id = None
     try:
         # Check if we've already processed this email
         existing = db.get_story_by_email_id(email_id)
@@ -66,12 +71,17 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
                 "story_id": existing["id"],
             }
 
-        # Parse email to extract story (with agent-first approach)
-        story_data = extract_content(email_data)
+        # Create placeholder story record to get ID
+        story_id = db.create_story(email_id, title="Processing...")
 
-        if not story_data:
-            # Create failed record
-            story_id = db.create_story(email_id, title="Failed to parse")
+        # Update status to processing
+        db.update_story_status(story_id, StoryStatus.PROCESSING)
+
+        # Extract story content and save to files (agent-first approach)
+        result = extract_content(email_data, story_id, storage)
+
+        if not result:
+            # Extraction failed
             db.update_story_status(story_id, StoryStatus.FAILED, "Could not extract story content from email")
             return {
                 "status": "error",
@@ -79,53 +89,61 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
                 "story_id": story_id,
             }
 
-        # Create story record with extraction metadata
-        story_id = db.create_story(
-            email_id=email_id,
-            title=story_data["title"],
-            author=story_data["author"],
-            raw_content=story_data["text"],
-            extraction_method=story_data.get("source_type", "unknown"),
-            extraction_metadata=str(story_data.get("metadata", {})),
-        )
+        content_path, metadata_path, original_email_path = result
 
-        # Update status to processing
-        db.update_story_status(story_id, StoryStatus.PROCESSING)
+        # Read metadata to get title, author, extraction method
+        metadata = storage.read_metadata(metadata_path)
+
+        # Update story record with file paths and metadata
+        db.update_story_paths(
+            story_id,
+            content_path=content_path,
+            metadata_path=metadata_path
+        )
 
         # Chunk the story - use Agent chunker by default with fallback to SimpleChunker
         use_agent = os.environ.get("USE_AGENT_CHUNKER", "true").lower() == "true"
-        target_words = int(os.environ.get("TARGET_WORDS", "5000"))
+        target_words = int(os.environ.get("TARGET_WORDS", "8000"))
 
         if use_agent:
             print(f"Using Agent chunker with target {target_words} words")
             chunker = AgentChunker(target_words=target_words, fallback_to_simple=True)
-            chunks = chunker.chunk_text(story_data["text"])
         else:
             print(f"Using simple chunker with target {target_words} words")
-            chunks = chunk_story(story_data["text"], target_words=target_words)
+            chunker = SimpleChunker(target_words=target_words)
 
-        total_words = sum(word_count for _, word_count in chunks)
-        db.update_word_count(story_id, total_words)
+        # Chunk from file and save chunk files
+        chunk_manifest_path = chunker.chunk_story_from_file(story_id, content_path, storage)
 
-        # Save chunk records to database (EPUBs will be generated on-demand when sending)
-        total_chunks = len(chunks)
-        for i, (chunk_text, word_count) in enumerate(chunks, start=1):
+        # Update story with chunk manifest path
+        db.update_story_paths(story_id, chunk_manifest_path=chunk_manifest_path)
+
+        # Read chunk manifest and create database records
+        chunk_manifest = storage.read_chunk_manifest(chunk_manifest_path)
+        total_words = 0
+
+        for chunk_info in chunk_manifest["chunks"]:
+            chunk_path = chunk_info["chunk_path"]
+            chunk_text = storage.read_chunk(chunk_path)
+
             db.create_chunk(
                 story_id=story_id,
-                chunk_number=i,
-                total_chunks=total_chunks,
+                chunk_number=chunk_info["chunk_number"],
+                total_chunks=chunk_manifest["total_chunks"],
                 chunk_text=chunk_text,
-                word_count=word_count,
+                word_count=chunk_info["word_count"],
             )
+            total_words += chunk_info["word_count"]
 
+        db.update_word_count(story_id, total_words)
         db.update_story_status(story_id, StoryStatus.CHUNKED)
         volume.commit()
 
         return {
             "status": "success",
-            "message": f"Successfully processed and chunked: {story_data['title']}. Chunks will be sent daily.",
+            "message": f"Successfully processed and chunked: {metadata['title']}. Chunks will be sent daily.",
             "story_id": story_id,
-            "chunks": len(chunks),
+            "chunks": chunk_manifest["total_chunks"],
             "total_words": total_words,
         }
 
@@ -182,6 +200,7 @@ def retry_failed_stories():
     Runs every 6 hours to retry stories that failed processing.
     """
     db = Database("/data/stories.db")
+    storage = FileStorage("/data")
     failed_stories = db.get_failed_stories(max_retries=3)
 
     print(f"Found {len(failed_stories)} failed stories to retry")
@@ -189,10 +208,34 @@ def retry_failed_stories():
     for story in failed_stories:
         print(f"Retrying story: {story['title']} (ID: {story['id']})")
 
-        # Reconstruct email data from stored content
+        # Try to reconstruct email data from original_email_path if available
+        if story.get("original_email_path"):
+            try:
+                full_path = storage.get_absolute_path(story["original_email_path"])
+                original_email = full_path.read_text()
+                # Split back into text and html
+                parts = original_email.split("\n\n--- HTML ---\n\n", 1)
+                text = parts[0]
+                html = parts[1] if len(parts) > 1 else ""
+            except Exception as e:
+                print(f"Could not read original email: {e}")
+                text = ""
+                html = ""
+        else:
+            # Fallback - read content if available
+            if story.get("content_path"):
+                try:
+                    text = storage.read_story_content(story["content_path"])
+                except Exception:
+                    text = ""
+            else:
+                text = ""
+            html = ""
+
         email_data = {
             "message-id": story["email_id"],
-            "text": story["raw_content"] or "",
+            "text": text,
+            "html": html,
             "subject": story["title"],
             "from": story["author"],
         }

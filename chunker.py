@@ -1,8 +1,9 @@
 import re
 import os
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 from abc import ABC, abstractmethod
 import anthropic
+from file_storage import FileStorage
 
 
 class ChunkingStrategy(ABC):
@@ -17,6 +18,46 @@ class ChunkingStrategy(ABC):
             List of tuples (chunk_text, word_count)
         """
         pass
+
+    def chunk_story_from_file(self, story_id: int, content_path: str,
+                              storage: FileStorage) -> str:
+        """
+        Read story content from file, chunk it, and save chunks to files.
+
+        Args:
+            story_id: Database ID for this story
+            content_path: Relative path to story content file
+            storage: FileStorage instance
+
+        Returns:
+            Relative path to chunk manifest file
+        """
+        # Read content from file
+        content = storage.read_story_content(content_path)
+
+        # Chunk the content
+        chunks = self.chunk_text(content)
+
+        # Save each chunk to a file
+        chunk_info = []
+        for i, (chunk_text, word_count) in enumerate(chunks, 1):
+            chunk_path = storage.save_chunk(story_id, i, chunk_text)
+            chunk_info.append({
+                "chunk_number": i,
+                "chunk_path": chunk_path,
+                "word_count": word_count
+            })
+
+        # Save chunk manifest
+        manifest = {
+            "total_chunks": len(chunks),
+            "chunks": chunk_info,
+            "chunking_strategy": self.__class__.__name__
+        }
+        manifest_path = storage.save_chunk_manifest(story_id, manifest)
+
+        print(f"✅ Created {len(chunks)} chunks for story {story_id}")
+        return manifest_path
 
     def count_words(self, text: str) -> int:
         """Count words in text."""
@@ -360,14 +401,14 @@ class AgentChunker(ChunkingStrategy):
 
     def __init__(
         self,
-        target_words: int = 5000,
-        tolerance: float = 0.1,
+        target_words: int = 8000,
+        tolerance: float = 0.15,
         fallback_to_simple: bool = True,
     ):
         """
         Args:
-            target_words: Target word count per chunk
-            tolerance: Acceptable deviation (0.1 = ±10%)
+            target_words: Target word count per chunk (default: 8000)
+            tolerance: Acceptable deviation (0.15 = ±15%)
             fallback_to_simple: If True, fall back to SimpleChunker on failure
         """
         self.target_words = target_words
@@ -480,6 +521,14 @@ Text with paragraph numbers:
         print(response_text)
         print("="*80 + "\n")
 
+        # Extract result from ResultMessage if present
+        if 'result=' in response_text:
+            result_start = response_text.find('result=') + 8
+            result_end = response_text.rfind("')")
+            if result_end > result_start:
+                response_text = response_text[result_start:result_end]
+                print(f"\n{'='*80}\nEXTRACTED RESULT:\n{'='*80}\n{response_text}\n{'='*80}\n")
+
         # Check for no breaks needed
         if "NO_BREAKS_NEEDED" in response_text or "NO BREAKS" in response_text:
             return [(text, self.count_words(text))]
@@ -569,8 +618,68 @@ Text with paragraph numbers:
         return chunks
 
     def _create_recap(self, previous_chunk: str) -> str:
-        """Create a recap from the end of the previous chunk."""
-        # Get last 5-10 sentences or last ~250 words
+        """Create an intelligent recap from the previous chunk using the agent."""
+        try:
+            from claude_agent_sdk import query
+            import anyio
+            import asyncio
+
+            # Check if we're already in an async context
+            try:
+                loop = asyncio.get_running_loop()
+                # We're already in an async context, can't use anyio.run
+                print("Warning: Already in async context, using simple recap instead of agent")
+                return self._create_simple_recap(previous_chunk)
+            except RuntimeError:
+                # Not in async context, safe to use anyio.run
+                return anyio.run(self._create_recap_with_agent, previous_chunk)
+        except Exception as e:
+            print(f"Warning: Could not create agent recap ({e}), falling back to simple recap")
+            return self._create_simple_recap(previous_chunk)
+
+    async def _create_recap_with_agent(self, previous_chunk: str) -> str:
+        """Use agent to create contextual recap of previous chunk."""
+        from claude_agent_sdk import query
+
+        # Truncate if too long (use last ~3000 words for context)
+        words = previous_chunk.split()
+        if len(words) > 3000:
+            preview = " ".join(words[-3000:])
+        else:
+            preview = previous_chunk
+
+        prompt = f"""Create a brief recap of what happened in this story chunk. This will appear at the start of the NEXT chunk.
+
+GUIDELINES:
+- Focus on KEY plot points, character actions, and revelations
+- 2-4 sentences maximum (~50-100 words)
+- Use past tense ("Previously: Character did X, discovered Y")
+- Prioritize: major events > character development > world details
+- Omit minor details, atmosphere, internal thoughts unless crucial
+
+Previous chunk excerpt (last part):
+{preview}
+
+Write ONLY the recap text, no preamble."""
+
+        response_parts = []
+        async for message in query(prompt=prompt):
+            response_parts.append(str(message))
+
+        recap_text = "".join(response_parts).strip()
+
+        # Clean up any result wrapper
+        if 'result=' in recap_text:
+            result_start = recap_text.find('result=') + 8
+            result_end = recap_text.rfind("')")
+            if result_end > result_start:
+                recap_text = recap_text[result_start:result_end]
+
+        # Format as recap block
+        return f"───────────────────────────────────────\n*Previously:*\n> {recap_text}\n───────────────────────────────────────"
+
+    def _create_simple_recap(self, previous_chunk: str) -> str:
+        """Fallback: Create simple recap from last few sentences."""
         sentences = re.split(r'(?<=[.!?])\s+', previous_chunk)
 
         # Take last 5-10 sentences, but cap at ~250 words
@@ -589,7 +698,7 @@ Text with paragraph numbers:
 
         recap_text = " ".join(recap_sentences).strip()
 
-        # Format as a recap block (using your existing format)
+        # Format as a recap block
         return f"───────────────────────────────────────\n*Previously:*\n> {recap_text}\n───────────────────────────────────────"
 
     def _fallback_chunk(self, text: str) -> List[Tuple[str, int]]:

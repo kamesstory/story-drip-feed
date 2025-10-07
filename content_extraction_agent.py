@@ -4,15 +4,22 @@ Content extraction agent using Claude Agent SDK.
 This module provides intelligent content extraction from emails using Claude's
 Agent SDK. The agent can analyze emails and determine the best extraction strategy,
 handle complex scenarios, and fall back to traditional strategies when needed.
+
+Outputs are saved to Modal volume as files:
+- metadata.yaml: Story metadata (title, author, source_type, etc.)
+- content.txt: Clean story content
+- original_email.txt: Original email for debugging
 """
 
 import os
 import re
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from email_parser import EmailParser, InlineTextStrategy, PasswordProtectedURLStrategy
+from file_storage import FileStorage
 
 
-async def extract_content_with_agent(email_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
+async def extract_content_with_agent(email_data: Dict[str, Any], story_id: int,
+                                      storage: FileStorage) -> Optional[Tuple[str, str, str]]:
     """
     Use Claude Agent SDK to intelligently extract story content from email.
 
@@ -22,11 +29,15 @@ async def extract_content_with_agent(email_data: Dict[str, Any]) -> Optional[Dic
     - Are there multiple content sources to combine?
     - What's the best extraction approach?
 
+    Saves extracted content and metadata to files.
+
     Args:
         email_data: Dict with keys like 'html', 'text', 'subject', 'from'
+        story_id: Database ID for this story
+        storage: FileStorage instance for saving files
 
     Returns:
-        Dict with keys: 'text', 'title', 'author', 'source_type', 'metadata'
+        Tuple of (content_path, metadata_path, original_email_path) as relative paths,
         or None if extraction fails
     """
     try:
@@ -77,13 +88,34 @@ EXAMPLES:
         analysis = "".join(response_parts)
         print(f"\n{'='*80}\nAGENT ANALYSIS:\n{'='*80}\n{analysis}\n{'='*80}\n")
 
+        # Extract just the result text from the agent response
+        # The claude-agent-sdk returns ResultMessage with a 'result' field
+        if 'result=' in analysis:
+            # Extract the result portion
+            result_start = analysis.find('result=') + 8  # Skip "result='"
+            result_end = analysis.rfind("')")
+            if result_end > result_start:
+                analysis = analysis[result_start:result_end]
+                print(f"\n{'='*80}\nEXTRACTED RESULT:\n{'='*80}\n{analysis}\n{'='*80}\n")
+
         # Parse agent's decision
         strategy = _extract_field(analysis, "STRATEGY")
         url = _extract_field(analysis, "URL")
         password = _extract_field(analysis, "PASSWORD")
         confidence = _extract_field(analysis, "CONFIDENCE")
 
+        print(f"DEBUG - Parsed strategy: '{strategy}'")
+        print(f"DEBUG - Parsed URL: '{url}'")
+        print(f"DEBUG - Parsed confidence: '{confidence}'")
+
+        # Save original email for debugging
+        email_text = email_data.get("text", "") + "\n\n--- HTML ---\n\n" + email_data.get("html", "")
+        original_email_path = storage.save_original_email(story_id, email_text)
+
         # Execute based on agent's decision
+        story_content = None
+        metadata = {}
+
         if strategy == "url" and url and url != "none":
             print(f"Agent recommends URL strategy: {url}")
             url_strategy = PasswordProtectedURLStrategy()
@@ -97,13 +129,16 @@ EXAMPLES:
 
             result = url_strategy.extract_story(enhanced_email_data)
             if result:
-                result["source_type"] = "agent_url"
-                result["metadata"] = {
+                story_content = result["text"]
+                metadata = {
+                    "title": result.get("title", email_data.get("subject", "Unknown Title")),
+                    "author": result.get("author", _extract_author_from_email(email_data.get("from", ""))),
+                    "source_type": "agent_url",
+                    "extraction_method": "agent",
                     "agent_confidence": confidence,
                     "extracted_url": url,
                     "had_password": password != "none"
                 }
-                return result
 
         elif strategy == "inline" or strategy == "mixed":
             print(f"Agent recommends inline strategy - using agent to clean content")
@@ -111,16 +146,25 @@ EXAMPLES:
             story_content = await _extract_story_with_agent(email_data)
 
             if story_content:
-                result = {
-                    "text": story_content,
+                metadata = {
                     "title": email_data.get("subject", "Unknown Title"),
                     "author": _extract_author_from_email(email_data.get("from", "")),
                     "source_type": "agent_inline",
-                    "metadata": {
-                        "agent_confidence": confidence
-                    }
+                    "extraction_method": "agent",
+                    "agent_confidence": confidence
                 }
-                return result
+
+        if story_content and metadata:
+            # Save content and metadata files
+            content_path = storage.save_story_content(story_id, story_content)
+            metadata_path = storage.save_metadata(story_id, metadata)
+
+            print(f"✅ Saved story files:")
+            print(f"   Content: {content_path}")
+            print(f"   Metadata: {metadata_path}")
+            print(f"   Original: {original_email_path}")
+
+            return (content_path, metadata_path, original_email_path)
 
         # If agent strategy didn't work, return None to trigger fallback
         print("Agent strategy failed, will fall back to traditional parser")
@@ -134,17 +178,21 @@ EXAMPLES:
         return None
 
 
-def extract_content(email_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
+def extract_content(email_data: Dict[str, Any], story_id: int,
+                   storage: FileStorage) -> Optional[Tuple[str, str, str]]:
     """
     Extract content with agent-first approach and automatic fallback.
 
     Tries agent extraction first, falls back to traditional EmailParser if needed.
+    Saves all outputs to files on Modal volume.
 
     Args:
         email_data: Dict with keys like 'html', 'text', 'subject', 'from'
+        story_id: Database ID for this story
+        storage: FileStorage instance for saving files
 
     Returns:
-        Dict with keys: 'text', 'title', 'author', optionally 'source_type', 'metadata'
+        Tuple of (content_path, metadata_path, original_email_path) as relative paths,
         or None if all extraction methods fail
     """
     # Agent extraction enabled by default
@@ -154,9 +202,9 @@ def extract_content(email_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
         print("Attempting agent-based content extraction...")
         try:
             import anyio
-            result = anyio.run(extract_content_with_agent, email_data)
+            result = anyio.run(extract_content_with_agent, email_data, story_id, storage)
             if result:
-                print(f"✅ Agent extraction successful ({result.get('source_type', 'unknown')})")
+                print(f"✅ Agent extraction successful")
                 return result
         except Exception as e:
             print(f"Agent extraction failed: {e}")
@@ -167,11 +215,31 @@ def extract_content(email_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
     result = parser.parse_email(email_data)
 
     if result:
-        # Add metadata to indicate fallback was used
-        result["source_type"] = result.get("source_type", "traditional_parser")
-        result["metadata"] = {"used_fallback": use_agent}
+        # Save original email
+        email_text = email_data.get("text", "") + "\n\n--- HTML ---\n\n" + email_data.get("html", "")
+        original_email_path = storage.save_original_email(story_id, email_text)
 
-    return result
+        # Save content
+        content_path = storage.save_story_content(story_id, result["text"])
+
+        # Save metadata
+        metadata = {
+            "title": result.get("title", "Unknown Title"),
+            "author": result.get("author", "Unknown Author"),
+            "source_type": result.get("source_type", "traditional_parser"),
+            "extraction_method": "fallback",
+            "used_fallback": use_agent
+        }
+        metadata_path = storage.save_metadata(story_id, metadata)
+
+        print(f"✅ Saved story files (fallback):")
+        print(f"   Content: {content_path}")
+        print(f"   Metadata: {metadata_path}")
+        print(f"   Original: {original_email_path}")
+
+        return (content_path, metadata_path, original_email_path)
+
+    return None
 
 
 def _prepare_email_preview(email_data: Dict[str, Any], max_length: int = 2000) -> str:
@@ -198,10 +266,75 @@ def _prepare_email_preview(email_data: Dict[str, Any], max_length: int = 2000) -
     return "\n".join(preview_parts)
 
 
-def _extract_field(text: str, field_name: str) -> str:
-    """Extract a field value from agent response."""
-    pattern = rf'{field_name}:\s*(.+?)(?:\n|$)'
-    match = re.search(pattern, text, re.IGNORECASE)
+async def _extract_story_with_agent(email_data: Dict[str, Any]) -> Optional[str]:
+    """Use agent to extract ONLY the story content, removing boilerplate."""
+    from claude_agent_sdk import query
+
+    text = email_data.get("text", "")
+    html = email_data.get("html", "")
+    content = text if text else html
+
+    extraction_prompt = f"""Extract ONLY the story content from this email.
+
+Email content:
+{content[:10000]}
+
+INSTRUCTIONS:
+1. Return ONLY the narrative story text (dialogue, scenes, descriptions)
+2. REMOVE all email metadata: dates, "View in app", chapter numbers, announcements
+3. REMOVE all footer boilerplate: "Like", "Comment", "Share", "Subscribe", Patreon links, copyright notices
+4. The story should start with the first narrative line and end with the last narrative line
+5. Keep paragraph breaks intact
+6. Do NOT summarize or generate - extract the exact text
+
+Output the clean story content with no preamble or explanation."""
+
+    response_parts = []
+    async for message in query(prompt=extraction_prompt):
+        response_parts.append(str(message))
+
+    story_content = "".join(response_parts).strip()
+
+    # Basic validation - should be substantial
+    if len(story_content) < 500:
+        print(f"Warning: Extracted content too short ({len(story_content)} chars)")
+        return None
+
+    return story_content
+
+
+def _extract_author_from_email(from_email: str) -> str:
+    """Extract author name from email address."""
+    # Try to extract name from "Name <email@domain.com>" format
+    match = re.match(r'^([^<]+)<', from_email)
     if match:
         return match.group(1).strip()
+
+    # Otherwise use email username
+    match = re.match(r'^([^@]+)@', from_email)
+    if match:
+        return match.group(1).strip()
+
+    return "Unknown Author"
+
+
+def _extract_field(text: str, field_name: str) -> str:
+    """Extract a field value from agent response."""
+    # Handle markdown formatting: **FIELD:** value (capture single line, trim extra text)
+    pattern = rf'\*\*{field_name}:\*\*\s*([^\n*]+)'
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        value = match.group(1).strip()
+        # Remove escaped newlines and extra content (handle both \n and actual newlines)
+        value = value.replace('\\n', ' ').split('\n')[0].strip()
+        return value
+
+    # Fallback to plain format: FIELD: value
+    pattern = rf'{field_name}:\s*([^\n*]+)'
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        value = match.group(1).strip()
+        value = value.replace('\\n', ' ').split('\n')[0].strip()
+        return value
+
     return ""

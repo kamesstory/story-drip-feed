@@ -10,7 +10,9 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:docs.patreon.com)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(poetry lock:*)",
+      "Bash(poetry install:*)"
     ]
   },
   "enableAllProjectMcpServers": false

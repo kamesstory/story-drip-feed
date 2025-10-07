@@ -46,9 +46,11 @@ class Database:
                     retry_count INTEGER DEFAULT 0,
                     processed_at TIMESTAMP,
                     sent_at TIMESTAMP,
-                    raw_content TEXT,
-                    extraction_method TEXT,
-                    extraction_metadata TEXT
+                    content_path TEXT,
+                    metadata_path TEXT,
+                    original_email_path TEXT,
+                    chunk_manifest_path TEXT,
+                    extraction_method TEXT
                 )
             """)
 
@@ -94,7 +96,7 @@ class Database:
                         chunk_number INTEGER NOT NULL,
                         total_chunks INTEGER NOT NULL,
                         word_count INTEGER,
-                        chunk_text TEXT NOT NULL,
+                        chunk_text TEXT NOT NULL DEFAULT '',
                         epub_path TEXT,
                         sent_to_kindle_at TIMESTAMP,
                         FOREIGN KEY (story_id) REFERENCES stories(id),
@@ -113,15 +115,42 @@ class Database:
             """)
 
     def create_story(self, email_id: str, title: Optional[str] = None,
-                    author: Optional[str] = None, raw_content: Optional[str] = None,
-                    extraction_method: Optional[str] = None, extraction_metadata: Optional[str] = None) -> int:
-        """Create a new story record."""
+                    author: Optional[str] = None,
+                    content_path: Optional[str] = None,
+                    metadata_path: Optional[str] = None,
+                    original_email_path: Optional[str] = None,
+                    extraction_method: Optional[str] = None) -> int:
+        """Create a new story record with file paths."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
-                INSERT INTO stories (email_id, title, author, received_at, raw_content, extraction_method, extraction_metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (email_id, title, author, datetime.utcnow(), raw_content, extraction_method, extraction_metadata))
+                INSERT INTO stories (email_id, title, author, received_at, content_path, metadata_path, original_email_path, extraction_method)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (email_id, title, author, datetime.utcnow(), content_path, metadata_path, original_email_path, extraction_method))
             return cursor.lastrowid
+
+    def update_story_paths(self, story_id: int, content_path: Optional[str] = None,
+                          metadata_path: Optional[str] = None, chunk_manifest_path: Optional[str] = None):
+        """Update file paths for a story."""
+        with self.get_connection() as conn:
+            updates = []
+            values = []
+            if content_path:
+                updates.append("content_path = ?")
+                values.append(content_path)
+            if metadata_path:
+                updates.append("metadata_path = ?")
+                values.append(metadata_path)
+            if chunk_manifest_path:
+                updates.append("chunk_manifest_path = ?")
+                values.append(chunk_manifest_path)
+
+            if updates:
+                values.append(story_id)
+                conn.execute(f"""
+                    UPDATE stories
+                    SET {', '.join(updates)}
+                    WHERE id = ?
+                """, tuple(values))
 
     def update_story_status(self, story_id: int, status: StoryStatus,
                            error_message: Optional[str] = None):
