@@ -6,7 +6,10 @@
       "Bash(grep:*)",
       "Bash(./update-secrets.sh)",
       "Bash(poetry run modal:*)",
-      "Bash(unzip:*)"
+      "Bash(unzip:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.patreon.com)"
     ]
   },
   "enableAllProjectMcpServers": false
