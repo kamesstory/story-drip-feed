@@ -12,7 +12,8 @@
       "WebFetch(domain:docs.patreon.com)",
       "Bash(python3:*)",
       "Bash(poetry lock:*)",
-      "Bash(poetry install:*)"
+      "Bash(poetry install:*)",
+      "Bash(chmod:*)"
     ]
   },
   "enableAllProjectMcpServers": false
