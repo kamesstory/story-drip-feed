@@ -5,7 +5,8 @@ from typing import Dict, Any
 
 from database import Database, StoryStatus
 from email_parser import EmailParser
-from chunker import chunk_story, LLMChunker, SimpleChunker
+from chunker import chunk_story, LLMChunker, SimpleChunker, AgentChunker
+from content_extraction_agent import extract_content
 from epub_generator import EPUBGenerator
 from kindle_sender import KindleSender
 
@@ -29,6 +30,7 @@ image = (
     .add_local_file("database.py", "/root/database.py")
     .add_local_file("email_parser.py", "/root/email_parser.py")
     .add_local_file("chunker.py", "/root/chunker.py")
+    .add_local_file("content_extraction_agent.py", "/root/content_extraction_agent.py")
     .add_local_file("epub_generator.py", "/root/epub_generator.py")
     .add_local_file("kindle_sender.py", "/root/kindle_sender.py")
     .add_local_file("examples/inputs/pale-lights-example-1.txt", "/root/examples/inputs/pale-lights-example-1.txt")
@@ -64,9 +66,8 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
                 "story_id": existing["id"],
             }
 
-        # Parse email to extract story
-        parser = EmailParser()
-        story_data = parser.parse_email(email_data)
+        # Parse email to extract story (with agent-first approach)
+        story_data = extract_content(email_data)
 
         if not story_data:
             # Create failed record
@@ -78,22 +79,29 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
                 "story_id": story_id,
             }
 
-        # Create story record
+        # Create story record with extraction metadata
         story_id = db.create_story(
             email_id=email_id,
             title=story_data["title"],
             author=story_data["author"],
             raw_content=story_data["text"],
+            extraction_method=story_data.get("source_type", "unknown"),
+            extraction_metadata=str(story_data.get("metadata", {})),
         )
 
         # Update status to processing
         db.update_story_status(story_id, StoryStatus.PROCESSING)
 
-        # Chunk the story - use LLM chunker if enabled
+        # Chunk the story - use Agent/LLM/Simple chunker based on config
+        use_agent = os.environ.get("USE_AGENT_CHUNKER", "false").lower() == "true"
         use_llm = os.environ.get("USE_LLM_CHUNKER", "false").lower() == "true"
         target_words = int(os.environ.get("TARGET_WORDS", "5000"))
 
-        if use_llm:
+        if use_agent:
+            print(f"Using Agent chunker with target {target_words} words")
+            chunker = AgentChunker(target_words=target_words)
+            chunks = chunker.chunk_text(story_data["text"])
+        elif use_llm:
             print(f"Using LLM chunker with target {target_words} words")
             chunker = LLMChunker(target_words=target_words)
             chunks = chunker.chunk_text(story_data["text"])

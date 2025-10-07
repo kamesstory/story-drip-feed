@@ -9,7 +9,8 @@
       "Bash(unzip:*)",
       "WebSearch",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:docs.patreon.com)"
+      "WebFetch(domain:docs.patreon.com)",
+      "Bash(python3:*)"
     ]
   },
   "enableAllProjectMcpServers": false

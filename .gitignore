@@ -16,3 +16,4 @@ test_data/
 .vscode/
 examples/
 test_output/
+test_outputs/

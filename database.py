@@ -46,7 +46,9 @@ class Database:
                     retry_count INTEGER DEFAULT 0,
                     processed_at TIMESTAMP,
                     sent_at TIMESTAMP,
-                    raw_content TEXT
+                    raw_content TEXT,
+                    extraction_method TEXT,
+                    extraction_metadata TEXT
                 )
             """)
 
@@ -111,13 +113,14 @@ class Database:
             """)
 
     def create_story(self, email_id: str, title: Optional[str] = None,
-                    author: Optional[str] = None, raw_content: Optional[str] = None) -> int:
+                    author: Optional[str] = None, raw_content: Optional[str] = None,
+                    extraction_method: Optional[str] = None, extraction_metadata: Optional[str] = None) -> int:
         """Create a new story record."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
-                INSERT INTO stories (email_id, title, author, received_at, raw_content)
-                VALUES (?, ?, ?, ?, ?)
-            """, (email_id, title, author, datetime.utcnow(), raw_content))
+                INSERT INTO stories (email_id, title, author, received_at, raw_content, extraction_method, extraction_metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (email_id, title, author, datetime.utcnow(), raw_content, extraction_method, extraction_metadata))
             return cursor.lastrowid
 
     def update_story_status(self, story_id: int, status: StoryStatus,

@@ -9,17 +9,25 @@ Automated pipeline that receives Patreon stories via email, intelligently chunks
 ## Architecture
 
 **Core Pipeline:**
-1. Email webhook receives parsed emails → `EmailParser` extracts story content (inline text or password-protected URLs)
-2. `LLMChunker` (or `SimpleChunker`) splits text into ~5k word chunks at natural narrative breaks (scene changes, perspective shifts, completed emotional arcs)
-3. Chunks are saved to database with full text
+1. Email webhook receives parsed emails → `extract_content()` extracts story content (with optional agent-based analysis)
+   - Agent extraction (optional): Claude Agent SDK analyzes email to determine best extraction strategy
+   - Fallback strategies: `InlineTextStrategy`, `PasswordProtectedURLStrategy`
+2. Intelligent chunking splits text into ~5k word chunks at natural narrative breaks:
+   - `AgentChunker` (optional): Uses Claude Agent SDK for holistic story analysis and context-aware break points
+   - `LLMChunker`: Uses Claude API to identify natural breaks (scene changes, perspective shifts, completed emotional arcs)
+   - `SimpleChunker`: Word-count based fallback
+   - All chunkers preserve your recap system: adds "Previously:" sections between chunks
+3. Chunks are saved to database with full text and extraction metadata
 4. `send_daily_chunk` scheduled function (8am UTC) sends ONE chunk per day
 5. `EPUBGenerator` creates EPUB on-demand when sending
 6. `KindleSender` delivers via SMTP to Kindle email
 7. `Database` (SQLite on Modal Volume) tracks status: pending → processing → chunked → sent/failed
 
 **Key Design Patterns:**
-- Strategy pattern for chunking: `LLMChunker` uses Claude to identify natural break points, `SimpleChunker` as fallback
-- Strategy pattern for email parsing (supports multiple content sources)
+- Agent-first architecture: Claude Agent SDK for intelligent extraction and chunking (with automatic fallbacks)
+- Strategy pattern for chunking: `AgentChunker` → `LLMChunker` → `SimpleChunker`
+- Strategy pattern for email parsing: supports inline text, URLs, password-protected content
+- Metadata tracking: stores extraction method and confidence for debugging
 - Status tracking with retry logic for failed deliveries
 - Drip-feed delivery system: one chunk per day to control reading pace
 
@@ -63,6 +71,15 @@ poetry run modal run inspect_db.py
 # Test chunker on example files
 poetry run python test_chunker.py examples/inputs/pale-lights-example-1.txt 5000
 
+# Compare AgentChunker vs LLMChunker
+poetry run python test_agent_chunker.py examples/inputs/pale-lights-example-1.txt 5000
+
+# Test agent-based content extraction
+poetry run python test_content_agent.py examples/inputs/wandering-inn-example-1.txt
+
+# Test outputs are saved to test_outputs/ with timestamps
+# See TEST_OUTPUTS_README.md for details on reading results
+
 # Update Modal secrets from .env
 ./update-secrets.sh
 ```
@@ -77,13 +94,22 @@ poetry run modal secret create story-prep-secrets \
   SMTP_USER=your-email@gmail.com \
   SMTP_PASSWORD=your-app-password \
   TEST_MODE=true \
+  USE_AGENT_CHUNKER=false \
   USE_LLM_CHUNKER=true \
+  USE_AGENT_EXTRACTION=false \
   TARGET_WORDS=5000 \
   ANTHROPIC_API_KEY=your-anthropic-key
 
 # Or use the convenience script (recommended)
 ./update-secrets.sh
 ```
+
+**Configuration Options:**
+- `USE_AGENT_CHUNKER=true`: Enable Claude Agent SDK for most context-aware chunking
+- `USE_LLM_CHUNKER=true`: Enable Claude API chunking (fallback if agent disabled)
+- `USE_AGENT_EXTRACTION=true`: Enable Claude Agent SDK for intelligent email parsing
+- `TARGET_WORDS=5000`: Target words per chunk (flexible based on natural breaks)
+- Set all agent flags to `false` to use traditional strategies (no API costs)
 
 ## Testing & Verification
 

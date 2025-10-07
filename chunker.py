@@ -355,6 +355,249 @@ Text with paragraph numbers:
         return simple.chunk_text(text)
 
 
+class AgentChunker(ChunkingStrategy):
+    """Uses Claude Agent SDK for more context-aware chunking with full story analysis."""
+
+    def __init__(
+        self,
+        target_words: int = 5000,
+        tolerance: float = 0.1,
+        fallback_to_simple: bool = True,
+    ):
+        """
+        Args:
+            target_words: Target word count per chunk
+            tolerance: Acceptable deviation (0.1 = ±10%)
+            fallback_to_simple: If True, fall back to SimpleChunker on failure
+        """
+        self.target_words = target_words
+        self.min_words = int(target_words * (1 - tolerance))
+        self.max_words = int(target_words * (1 + tolerance))
+        self.fallback_to_simple = fallback_to_simple
+
+    def chunk_text(self, text: str) -> List[Tuple[str, int]]:
+        """
+        Chunk text using Agent SDK for holistic story analysis.
+
+        Returns:
+            List of tuples (chunk_text, word_count)
+        """
+        try:
+            from claude_agent_sdk import query
+            import anyio
+
+            # Use agent to analyze and chunk
+            chunks = anyio.run(self._chunk_with_agent, text)
+
+            if not chunks:
+                print("Warning: Agent returned no chunks, falling back to SimpleChunker")
+                return self._fallback_chunk(text)
+
+            return chunks
+
+        except ImportError:
+            print("Warning: claude-agent-sdk not installed, falling back to SimpleChunker")
+            return self._fallback_chunk(text)
+        except Exception as e:
+            print(f"Error using Agent chunker: {e}")
+            if self.fallback_to_simple:
+                print("Falling back to SimpleChunker")
+                return self._fallback_chunk(text)
+            raise
+
+    async def _chunk_with_agent(self, text: str) -> List[Tuple[str, int]]:
+        """Use agent to analyze full story and identify all break points."""
+        from claude_agent_sdk import query
+
+        total_words = self.count_words(text)
+        estimated_chunks = max(1, round(total_words / self.target_words))
+
+        # Split into paragraphs and number them
+        paragraphs = re.split(r'\n\s*\n', text)
+        numbered_text = ""
+        paragraph_positions = {}  # Map para number to character position
+
+        current_pos = 0
+        for i, para in enumerate(paragraphs):
+            if para.strip():
+                para_num = i + 1
+                numbered_text += f"[Para {para_num}]\n{para}\n\n"
+                paragraph_positions[para_num] = current_pos
+                current_pos += len(para) + 2
+
+        # Truncate if text is extremely long (to stay within context limits)
+        max_preview_length = 100000
+        if len(numbered_text) > max_preview_length:
+            numbered_text = numbered_text[:max_preview_length] + "\n\n[...text truncated for length...]"
+
+        prompt = f"""Analyze this story and identify natural break point(s) for splitting into reading chunks.
+
+Target: ~{self.target_words} words per chunk (flexible)
+Total: ~{total_words} words, {len(paragraphs)} paragraphs
+Suggested chunks: ~{estimated_chunks}
+
+CRITICAL PRIORITIES - Look for these IN ORDER:
+1. **EXPLICIT SCENE BREAKS** - Paragraphs containing ONLY "--", "* * *", or "═══" (these are MANDATORY breaks, use them even if far from target)
+2. **Scene transitions** - Character moves to completely different location or significant time passage
+3. **Resolution of conflicts** - After action sequence/fight ENDS and before next begins
+4. **Perspective shifts** - POV changes to different character
+5. **Completed emotional arcs** - After character completes internal transformation, NOT during it
+
+EXPLICITLY AVOID (these are BAD breaks):
+- Mid-combat: Character actively fighting/fleeing
+- Mid-dialogue: Characters in conversation
+- Mid-transformation: Character in middle of emotional/psychological change
+- Mid-climax: During peak of tension (wait for resolution)
+- Mid-flashback: Inside parenthetical glimpses or memory sequences
+
+FLEXIBILITY RULES:
+- Explicit scene breaks (---, * * *) ALWAYS take priority, even if chunks are unequal
+- Can create chunks as small as 2000 words or as large as 8000 words if it hits a proper scene break
+- Better to have 2500 + 4500 word split at a real scene break than 3500 + 3500 at a bad break
+- If multiple good breaks exist, prefer the one closest to target
+- Narrative coherence > word count balance
+
+For each break point, respond:
+BREAK_PARA: <number>
+REASON: Scene/action that ENDS before break | Scene/action that BEGINS after break
+
+If no breaks needed (story too short): NO_BREAKS_NEEDED
+
+Text with paragraph numbers:
+{numbered_text}"""
+
+        # Query agent
+        response_parts = []
+        async for message in query(prompt=prompt):
+            response_parts.append(str(message))
+
+        response_text = "".join(response_parts)
+
+        # Print agent's reasoning
+        print("\n" + "="*80)
+        print("AGENT CHUNKING ANALYSIS:")
+        print("="*80)
+        print(response_text)
+        print("="*80 + "\n")
+
+        # Check for no breaks needed
+        if "NO_BREAKS_NEEDED" in response_text or "NO BREAKS" in response_text:
+            return [(text, self.count_words(text))]
+
+        # Parse break points from response
+        break_points = []
+        for line in response_text.split('\n'):
+            if 'BREAK_PARA:' in line:
+                try:
+                    para_num_str = line.split('BREAK_PARA:')[1].strip()
+                    para_num = int(''.join(filter(str.isdigit, para_num_str)))
+
+                    if para_num in paragraph_positions:
+                        pos = paragraph_positions[para_num]
+
+                        # Check if this would create a tiny chunk at the end
+                        remaining_text = text[pos:]
+                        remaining_words = self.count_words(remaining_text)
+                        if remaining_words < 500:
+                            print(f"Skipping break at paragraph {para_num} - would create tiny {remaining_words} word chunk")
+                            continue
+
+                        print(f"Agent identified break at paragraph {para_num} (position {pos})")
+                        break_points.append(pos)
+                except (ValueError, IndexError) as e:
+                    print(f"Error parsing break point: {e}")
+                    continue
+
+        if not break_points:
+            print("Warning: No valid break points identified")
+            return [(text, self.count_words(text))]
+
+        # Split at break points with recap
+        return self._split_at_break_points(text, break_points)
+
+    def _split_at_break_points(self, text: str, break_points: List[int]) -> List[Tuple[str, int]]:
+        """Split text at the identified break points and add recaps."""
+        if not break_points:
+            return [(text, self.count_words(text))]
+
+        # Find paragraph boundaries
+        para_boundaries = [0]
+        for match in re.finditer(r'\n\s*\n', text):
+            para_boundaries.append(match.end())
+        para_boundaries.append(len(text))
+
+        # Adjust break points to paragraph boundaries
+        adjusted_breaks = [0]
+        max_adjustment = 2000
+
+        for break_point in break_points:
+            nearby_boundaries = [
+                pb for pb in para_boundaries
+                if abs(pb - break_point) <= max_adjustment
+            ]
+
+            if nearby_boundaries:
+                closest = min(nearby_boundaries, key=lambda x: abs(x - break_point))
+                if closest not in adjusted_breaks:
+                    adjusted_breaks.append(closest)
+            else:
+                if break_point not in adjusted_breaks:
+                    adjusted_breaks.append(break_point)
+
+        adjusted_breaks.append(len(text))
+        adjusted_breaks = sorted(set(adjusted_breaks))
+
+        # Create chunks with recaps
+        chunks = []
+        previous_chunk_text = None
+
+        for i in range(len(adjusted_breaks) - 1):
+            start = adjusted_breaks[i]
+            end = adjusted_breaks[i + 1]
+            chunk_text = text[start:end].strip()
+
+            if chunk_text:
+                # Add recap from previous chunk (except for first chunk)
+                if previous_chunk_text and i > 0:
+                    recap = self._create_recap(previous_chunk_text)
+                    chunk_text = recap + "\n\n" + chunk_text
+
+                word_count = self.count_words(chunk_text)
+                chunks.append((chunk_text, word_count))
+                previous_chunk_text = text[start:end].strip()  # Store original without recap
+
+        return chunks
+
+    def _create_recap(self, previous_chunk: str) -> str:
+        """Create a recap from the end of the previous chunk."""
+        # Get last 5-10 sentences or last ~250 words
+        sentences = re.split(r'(?<=[.!?])\s+', previous_chunk)
+
+        # Take last 5-10 sentences, but cap at ~250 words
+        recap_sentences = []
+        word_count = 0
+        target_words = 250
+
+        for sentence in reversed(sentences):
+            sent_words = self.count_words(sentence)
+            if word_count + sent_words > target_words and recap_sentences:
+                break
+            recap_sentences.insert(0, sentence)
+            word_count += sent_words
+            if len(recap_sentences) >= 10:
+                break
+
+        recap_text = " ".join(recap_sentences).strip()
+
+        # Format as a recap block (using your existing format)
+        return f"───────────────────────────────────────\n*Previously:*\n> {recap_text}\n───────────────────────────────────────"
+
+    def _fallback_chunk(self, text: str) -> List[Tuple[str, int]]:
+        """Fallback to SimpleChunker."""
+        simple = SimpleChunker(target_words=self.target_words)
+        return simple.chunk_text(text)
+
+
 def chunk_story(text: str, target_words: int = 10000,
                 strategy: ChunkingStrategy = None) -> List[Tuple[str, int]]:
     """

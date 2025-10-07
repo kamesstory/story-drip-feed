@@ -55,11 +55,50 @@ class InlineTextStrategy(EmailParsingStrategy):
         if not story_text or len(story_text.strip()) < 100:
             return None
 
+        # Clean up email metadata/boilerplate from the beginning
+        story_text = self._remove_email_boilerplate(story_text)
+
         return {
             "text": story_text.strip(),
             "title": self._clean_subject(subject),
             "author": author,
         }
+
+    def _remove_email_boilerplate(self, text: str) -> str:
+        """Remove common email boilerplate from beginning of text."""
+        lines = text.split('\n')
+
+        # Skip lines that look like email metadata (short lines at the top)
+        content_start = 0
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+
+            # Skip empty lines
+            if not line_stripped:
+                continue
+
+            # Skip common email headers
+            if any(phrase in line_stripped.lower() for phrase in [
+                'view in app',
+                'posted by',
+                'sent from',
+                'unsubscribe',
+            ]):
+                content_start = i + 1
+                continue
+
+            # If we find a substantial line (>80 chars) that looks like narrative, we've found the start
+            if len(line_stripped) > 80 and not line_stripped.startswith('http'):
+                content_start = i
+                break
+
+            # If we've seen more than 5 lines of headers, just start here
+            if i > 5:
+                content_start = i
+                break
+
+        # Join from content start
+        return '\n'.join(lines[content_start:]).strip()
 
     def _extract_text_from_html(self, html: str) -> str:
         """Extract clean text from HTML content."""
@@ -145,15 +184,27 @@ class PasswordProtectedURLStrategy(EmailParsingStrategy):
         """Extract password from text."""
         # Look for common password patterns
         patterns = [
-            r'password[:\s]+(\S+)',
-            r'pass[:\s]+(\S+)',
-            r'code[:\s]+(\S+)',
+            # Password on same line: "password: foo" or "password foo"
+            r'password[:\s]+["\']?([^\s"\'<>\n]+)["\']?',
+            r'pass[:\s]+["\']?([^\s"\'<>\n]+)["\']?',
+            r'code[:\s]+["\']?([^\s"\'<>\n]+)["\']?',
+            r'pw[:\s]+["\']?([^\s"\'<>\n]+)["\']?',
+            # Password on next line: "Password:\n\nshortCharacters"
+            r'password:\s*\n\s*([^\s\n]+)',
+            r'pass:\s*\n\s*([^\s\n]+)',
         ]
 
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
             if match:
-                return match.group(1)
+                password = match.group(1).strip()
+                # Remove trailing punctuation
+                password = re.sub(r'[.,;!?]+$', '', password)
+                # Skip if it looks like a URL or common non-password text
+                if password.startswith('http') or password.lower() in ['the', 'is', 'a', 'for']:
+                    continue
+                print(f"Found password: {password}")
+                return password
 
         return None
 
