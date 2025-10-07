@@ -55,9 +55,10 @@ Email Preview:
 CRITICAL INSTRUCTIONS:
 1. DO NOT generate story content from memory or imagination - you will use extraction tools
 2. Story content = narrative prose, dialogue, scenes, descriptions (multiple paragraphs of actual story)
-3. NOT story content = email headers, "View in app", dates, brief announcements, URLs by themselves
-4. Look at the TEXT CONTENT carefully - if there are many paragraphs of narrative after the header, that IS the story
+3. NOT story content = chapter numbers, dates, "View in app", author notes, Patreon links, social media buttons
+4. Look at the TEXT CONTENT carefully - if there are many paragraphs of narrative after the metadata, that IS the story
 5. Only choose URL strategy if there's NO substantial narrative in the email body itself
+6. REMEMBER: The extraction tool will clean out metadata, so focus on detecting WHERE the story is, not worrying about headers
 
 Decision Tree:
 - If email has >1000 characters of narrative prose with dialogue/scenes → STRATEGY: inline
@@ -279,15 +280,36 @@ async def _extract_story_with_agent(email_data: Dict[str, Any]) -> Optional[str]
 Email content:
 {content[:10000]}
 
-INSTRUCTIONS:
-1. Return ONLY the narrative story text (dialogue, scenes, descriptions)
-2. REMOVE all email metadata: dates, "View in app", chapter numbers, announcements
-3. REMOVE all footer boilerplate: "Like", "Comment", "Share", "Subscribe", Patreon links, copyright notices
-4. The story should start with the first narrative line and end with the last narrative line
-5. Keep paragraph breaks intact
-6. Do NOT summarize or generate - extract the exact text
+CRITICAL INSTRUCTIONS - REMOVE ALL NON-STORY CONTENT:
 
-Output the clean story content with no preamble or explanation."""
+**ALWAYS REMOVE (even if at start of story):**
+1. Chapter numbers/titles ("Chapter 27", "Chapter Title", "Episode 5.23")
+2. Dates ("Sep 19, 2025", "Posted on January 1", timestamps)
+3. Platform UI elements ("View in app", "Read online", "Open in browser")
+4. Author notes ("Author's note:", "A/N:", "Note from author")
+5. Patreon boilerplate ("Support me on Patreon", "Become a patron", pledge links)
+6. Social media ("Like", "Comment", "Share", "Subscribe", "Follow me on Twitter")
+7. Copyright notices ("© 2025", "All rights reserved")
+8. Table of contents links
+9. Navigation elements ("Previous chapter", "Next chapter", "Back to index")
+10. Reader engagement ("Thanks for reading!", "Please leave a comment")
+11. Update schedules ("Next chapter: Friday", "Posted weekly")
+12. Donation/tip jar links
+
+**KEEP ONLY:**
+- The actual narrative prose (descriptions, dialogue, action, scenes)
+- In-story formatting (scene breaks like "---", "* * *")
+- The story should start with the FIRST LINE OF ACTUAL NARRATIVE
+- Example good start: "Maryam was not having a good time."
+- Example bad start: "Chapter 27\nSep 19, 2025\nView in app\nMaryam was not having a good time."
+
+**OUTPUT FORMAT:**
+- Start immediately with story text
+- Keep paragraph breaks intact
+- Do NOT summarize or paraphrase - extract exact text
+- No preamble, no explanation, just the clean story
+
+Output the clean story content now:"""
 
     response_parts = []
     async for message in query(prompt=extraction_prompt):
