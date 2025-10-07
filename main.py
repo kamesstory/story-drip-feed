@@ -92,18 +92,13 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
         # Update status to processing
         db.update_story_status(story_id, StoryStatus.PROCESSING)
 
-        # Chunk the story - use Agent/LLM/Simple chunker based on config
-        use_agent = os.environ.get("USE_AGENT_CHUNKER", "false").lower() == "true"
-        use_llm = os.environ.get("USE_LLM_CHUNKER", "false").lower() == "true"
+        # Chunk the story - use Agent chunker by default with fallback to SimpleChunker
+        use_agent = os.environ.get("USE_AGENT_CHUNKER", "true").lower() == "true"
         target_words = int(os.environ.get("TARGET_WORDS", "5000"))
 
         if use_agent:
             print(f"Using Agent chunker with target {target_words} words")
-            chunker = AgentChunker(target_words=target_words)
-            chunks = chunker.chunk_text(story_data["text"])
-        elif use_llm:
-            print(f"Using LLM chunker with target {target_words} words")
-            chunker = LLMChunker(target_words=target_words)
+            chunker = AgentChunker(target_words=target_words, fallback_to_simple=True)
             chunks = chunker.chunk_text(story_data["text"])
         else:
             print(f"Using simple chunker with target {target_words} words")

@@ -106,13 +106,19 @@ EXAMPLES:
                 return result
 
         elif strategy == "inline" or strategy == "mixed":
-            print(f"Agent recommends inline strategy")
-            inline_strategy = InlineTextStrategy()
-            result = inline_strategy.extract_story(email_data)
-            if result:
-                result["source_type"] = "agent_inline"
-                result["metadata"] = {
-                    "agent_confidence": confidence
+            print(f"Agent recommends inline strategy - using agent to clean content")
+            # Use agent to extract just the story content
+            story_content = await _extract_story_with_agent(email_data)
+
+            if story_content:
+                result = {
+                    "text": story_content,
+                    "title": email_data.get("subject", "Unknown Title"),
+                    "author": _extract_author_from_email(email_data.get("from", "")),
+                    "source_type": "agent_inline",
+                    "metadata": {
+                        "agent_confidence": confidence
+                    }
                 }
                 return result
 
@@ -141,8 +147,8 @@ def extract_content(email_data: Dict[str, Any]) -> Optional[Dict[str, str]]:
         Dict with keys: 'text', 'title', 'author', optionally 'source_type', 'metadata'
         or None if all extraction methods fail
     """
-    # Check if agent extraction is enabled
-    use_agent = os.environ.get("USE_AGENT_EXTRACTION", "false").lower() == "true"
+    # Agent extraction enabled by default
+    use_agent = os.environ.get("USE_AGENT_EXTRACTION", "true").lower() == "true"
 
     if use_agent:
         print("Attempting agent-based content extraction...")

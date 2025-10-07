@@ -55,50 +55,11 @@ class InlineTextStrategy(EmailParsingStrategy):
         if not story_text or len(story_text.strip()) < 100:
             return None
 
-        # Clean up email metadata/boilerplate from the beginning
-        story_text = self._remove_email_boilerplate(story_text)
-
         return {
             "text": story_text.strip(),
             "title": self._clean_subject(subject),
             "author": author,
         }
-
-    def _remove_email_boilerplate(self, text: str) -> str:
-        """Remove common email boilerplate from beginning of text."""
-        lines = text.split('\n')
-
-        # Skip lines that look like email metadata (short lines at the top)
-        content_start = 0
-        for i, line in enumerate(lines):
-            line_stripped = line.strip()
-
-            # Skip empty lines
-            if not line_stripped:
-                continue
-
-            # Skip common email headers
-            if any(phrase in line_stripped.lower() for phrase in [
-                'view in app',
-                'posted by',
-                'sent from',
-                'unsubscribe',
-            ]):
-                content_start = i + 1
-                continue
-
-            # If we find a substantial line (>80 chars) that looks like narrative, we've found the start
-            if len(line_stripped) > 80 and not line_stripped.startswith('http'):
-                content_start = i
-                break
-
-            # If we've seen more than 5 lines of headers, just start here
-            if i > 5:
-                content_start = i
-                break
-
-        # Join from content start
-        return '\n'.join(lines[content_start:]).strip()
 
     def _extract_text_from_html(self, html: str) -> str:
         """Extract clean text from HTML content."""
