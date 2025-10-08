@@ -5,6 +5,7 @@ Automated pipeline that receives Patreon stories via email, intelligently chunks
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Complete Testing Workflow](TESTING_WORKFLOW.md) ⭐ **Step-by-step guide**
 - [Modal CLI Tools](#modal-cli-tools)
 - [Local Development with Modal](#local-development-with-modal)
 - [Local Testing Without Modal](#local-testing-without-modal)
@@ -254,6 +255,10 @@ modal volume create story-data-dev
 
 ### Typical Dev Workflow
 
+**For detailed step-by-step instructions, see [TESTING_WORKFLOW.md](TESTING_WORKFLOW.md)**
+
+Quick overview:
+
 ```bash
 # Terminal 1: Start dev server
 modal serve main_local.py
@@ -268,10 +273,6 @@ modal run scripts/manage_dev_db.py::list_stories
 
 # View chunk content
 modal run scripts/manage_dev_db.py::view_chunk --chunk-id 1
-
-# Or download and read locally
-modal volume get story-data-dev /data/chunks/story_000001/chunk_001.txt ./chunk.txt
-cat ./chunk.txt
 
 # Test sending
 modal run main_local.py::send_next_chunk
