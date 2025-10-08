@@ -8,7 +8,8 @@
       "Bash(modal:*)",
       "Bash(curl -X POST \"https://kamesstory--nighttime-story-prep-dev-submit-url-dev.modal.run\" -H \"Content-Type: application/json\" -d '{\n    \"\"\"\"url\"\"\"\": \"\"\"\"https://wanderinginn.com/2025/09/19/halfseekers-pt-6/\"\"\"\",\n    \"\"\"\"title\"\"\"\": \"\"\"\"Halfseekers Pt. 6\"\"\"\",\n    \"\"\"\"author\"\"\"\": \"\"\"\"pirateaba\"\"\"\"\n  }')",
       "Bash(curl -X POST 'https://kamesstory--nighttime-story-prep-dev-submit-url-dev.modal.run' -H 'Content-Type: application/json' -d '{\"\"\"\"url\"\"\"\": \"\"\"\"https://wanderinginn.com/2025/09/19/halfseekers-pt-6/\"\"\"\", \"\"\"\"title\"\"\"\": \"\"\"\"Halfseekers Pt. 6\"\"\"\", \"\"\"\"author\"\"\"\": \"\"\"\"pirateaba\"\"\"\"}')",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

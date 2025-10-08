@@ -135,12 +135,13 @@ SQL
 
 ## Local Development with Modal
 
-Use `main_local.py` for local development with live endpoints that auto-reload on code changes.
+Use `main.py` with dev environment for local development with live endpoints that auto-reload on code changes.
 
 ### Start Dev Server
 
 ```bash
-modal serve main_local.py
+# Defaults to dev mode (MODAL_ENVIRONMENT=dev)
+modal serve main.py
 ```
 
 This starts a local development server with:
@@ -149,11 +150,16 @@ This starts a local development server with:
 - ✅ URL submission endpoint
 - ✅ Hot-reload on file changes
 - ✅ Won't affect production data
+- ✅ Scheduled functions disabled in dev mode
 
 **Output:**
 ```
-✓ Created web function submit_url => https://you--nighttime-story-prep-dev-submit-url.modal.run
-✓ Created web function webhook => https://you--nighttime-story-prep-dev-webhook.modal.run
+🚀 Running in DEVELOPMENT mode
+   App: nighttime-story-prep-dev
+   Volume: story-data-dev
+   Database: /data/stories-dev.db
+✓ Created web function submit_url => https://you--nighttime-story-prep-dev-submit-url-dev.modal.run
+✓ Created web function webhook => https://you--nighttime-story-prep-dev-webhook-dev.modal.run
 ```
 
 ### Using the Dev Server
@@ -224,7 +230,7 @@ Start a shell with the volume mounted:
 
 ```bash
 # Shell with same environment as process_story function
-modal shell main_local.py::process_story
+modal shell main.py::process_story
 
 # Inside shell, explore the volume
 > ls /data
@@ -236,7 +242,7 @@ modal shell main_local.py::process_story
 #### Send Next Chunk Manually
 
 ```bash
-modal run main_local.py::send_next_chunk
+modal run main.py::send_daily_chunk
 ```
 
 #### Clean Up Test Data
@@ -260,8 +266,8 @@ modal volume create story-data-dev
 Quick overview:
 
 ```bash
-# Terminal 1: Start dev server
-modal serve main_local.py
+# Terminal 1: Start dev server (defaults to dev mode)
+modal serve main.py
 
 # Terminal 2: Submit test story
 curl -X POST https://your-dev/submit_url -d '{"url": "...", "password": "..."}'
@@ -275,7 +281,7 @@ modal run scripts/manage_dev_db.py::list_stories
 modal run scripts/manage_dev_db.py::view_chunk --chunk-id 1
 
 # Test sending
-modal run main_local.py::send_next_chunk
+modal run main.py::send_daily_chunk
 
 # Clean up
 modal run scripts/manage_dev_db.py::delete_story --story-id 1
@@ -434,6 +440,18 @@ https://your-username--nighttime-story-prep-webhook.modal.run
 
 Configure your email service (Mailgun/SendGrid/Cloudflare) to POST parsed emails to this endpoint.
 
+### Environment Variables
+
+Control dev vs production mode with `MODAL_ENVIRONMENT`:
+
+```bash
+# Development mode (default)
+modal serve main.py  # Uses dev database and volume
+
+# Production mode
+MODAL_ENVIRONMENT=prod modal deploy main.py  # Uses production database
+```
+
 ### Check Production Status
 
 ```bash
@@ -512,9 +530,9 @@ cp .env.example .env            # Copy environment file
 
 ### Local Modal Development
 ```bash
-modal serve main_local.py                    # Start dev server
-modal run main_local.py                      # Test with example story
-modal run main_local.py::send_next_chunk     # Send next chunk
+modal serve main.py                          # Start dev server
+modal run main.py                            # Test with example story
+modal run main.py::send_daily_chunk          # Send next chunk
 modal logs nighttime-story-prep-dev.process_story  # View logs
 ```
 
@@ -663,10 +681,11 @@ SELECT chunk_number, word_count, sent_to_kindle_at FROM story_chunks WHERE story
 
 ## Dev vs Production
 
-| Aspect | Dev (`main_local.py`) | Production (`main.py`) |
-|--------|----------------------|----------------------|
+| Aspect | Dev (default) | Production (`MODAL_ENVIRONMENT=prod`) |
+|--------|--------------|--------------------------------------|
 | Database | `stories-dev.db` | `stories.db` |
 | Volume | `story-data-dev` | `story-data` |
+| App Name | `nighttime-story-prep-dev` | `nighttime-story-prep` |
 | Scheduling | Manual trigger only | Auto at 8am UTC |
 | Hot reload | Yes (`modal serve`) | No |
 | Webhooks | Dev URLs | Production URLs |

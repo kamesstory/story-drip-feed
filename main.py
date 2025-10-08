@@ -327,62 +327,62 @@ if not IS_DEV:
     schedule=modal.Cron("0 8 * * *"),  # Every day at 8am UTC
 )
 def send_daily_chunk():
-        """
-        Scheduled function to send one chunk per day to Kindle.
+    """
+    Scheduled function to send one chunk per day to Kindle.
 
-        Runs every day at 8am UTC to send the next unsent chunk.
-        """
-        db = Database(f"/data/{DB_NAME}")
-        next_chunk = db.get_next_unsent_chunk()
+    Runs every day at 8am UTC to send the next unsent chunk.
+    """
+    db = Database(f"/data/{DB_NAME}")
+    next_chunk = db.get_next_unsent_chunk()
 
-        if not next_chunk:
-            print("No unsent chunks found")
-            return
+    if not next_chunk:
+        print("No unsent chunks found")
+        return
 
-        print(f"📤 Sending chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}: {next_chunk['title']} by {next_chunk['author']}")
-        print(f"   Chunk ID: {next_chunk['id']}, Words: {next_chunk['word_count']}")
+    print(f"📤 Sending chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}: {next_chunk['title']} by {next_chunk['author']}")
+    print(f"   Chunk ID: {next_chunk['id']}, Words: {next_chunk['word_count']}")
 
-        try:
-            # Generate EPUB for this chunk
-            epub_gen = EPUBGenerator("/data/epubs")
-            epub_path = epub_gen.create_epub(
-                text=next_chunk["chunk_text"],
-                title=next_chunk["title"],
-                author=next_chunk["author"],
-                chunk_number=next_chunk["chunk_number"],
-                total_chunks=next_chunk["total_chunks"],
-            )
+    try:
+        # Generate EPUB for this chunk
+        epub_gen = EPUBGenerator("/data/epubs")
+        epub_path = epub_gen.create_epub(
+            text=next_chunk["chunk_text"],
+            title=next_chunk["title"],
+            author=next_chunk["author"],
+            chunk_number=next_chunk["chunk_number"],
+            total_chunks=next_chunk["total_chunks"],
+        )
 
-            # Send to Kindle
-            kindle_sender = KindleSender.from_env()
-            success = kindle_sender.send_epubs(
-                epub_paths=[epub_path],
-                title=next_chunk["title"],
-                subject=f"{next_chunk['title']} - Part {next_chunk['chunk_number']}/{next_chunk['total_chunks']}",
-            )
+        # Send to Kindle
+        kindle_sender = KindleSender.from_env()
+        success = kindle_sender.send_epubs(
+            epub_paths=[epub_path],
+            title=next_chunk["title"],
+            subject=f"{next_chunk['title']} - Part {next_chunk['chunk_number']}/{next_chunk['total_chunks']}",
+        )
 
-            if success:
-                # Mark chunk as sent
-                db.mark_chunk_sent(next_chunk["id"])
+        if success:
+            # Mark chunk as sent
+            db.mark_chunk_sent(next_chunk["id"])
 
-                # Check if all chunks for this story have been sent
-                all_chunks = db.get_story_chunks(next_chunk["story_id"])
-                all_sent = all([chunk["sent_to_kindle_at"] for chunk in all_chunks])
+            # Check if all chunks for this story have been sent
+            all_chunks = db.get_story_chunks(next_chunk["story_id"])
+            all_sent = all([chunk["sent_to_kindle_at"] for chunk in all_chunks])
 
-                if all_sent:
-                    db.update_story_status(next_chunk["story_id"], StoryStatus.SENT)
-                    print(f"✅ All chunks sent for Story ID {next_chunk['story_id']}: {next_chunk['title']}")
-                else:
-                    remaining = sum(1 for chunk in all_chunks if not chunk["sent_to_kindle_at"])
-                    print(f"✅ Successfully sent chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
-                    print(f"   {remaining} chunk(s) remaining for this story")
-
-                volume.commit()
+            if all_sent:
+                db.update_story_status(next_chunk["story_id"], StoryStatus.SENT)
+                print(f"✅ All chunks sent for Story ID {next_chunk['story_id']}: {next_chunk['title']}")
             else:
-                print(f"❌ Failed to send chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
+                remaining = sum(1 for chunk in all_chunks if not chunk["sent_to_kindle_at"])
+                print(f"✅ Successfully sent chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
+                print(f"   {remaining} chunk(s) remaining for this story")
 
-        except Exception as e:
-            print(f"❌ Error sending chunk from Story ID {next_chunk.get('story_id', 'unknown')}: {e}")
+            volume.commit()
+        else:
+            print(f"❌ Failed to send chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
+
+    except Exception as e:
+        print(f"❌ Error sending chunk from Story ID {next_chunk.get('story_id', 'unknown')}: {e}")
 
 
 @app.local_entrypoint()

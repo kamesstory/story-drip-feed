@@ -29,8 +29,7 @@ nighttime-story-prep/
 │   ├── README.md               # Complete development guide
 │   └── CONTENT_CLEANING.md     # Content extraction details
 ├── examples/inputs/             # Test story files
-├── main.py                      # Production Modal app
-├── main_local.py                # Local dev Modal app
+├── main.py                      # Modal app (dev + production)
 └── pyproject.toml               # Poetry dependencies
 ```
 
@@ -60,10 +59,12 @@ nighttime-story-prep/
 - Drip-feed delivery system: one chunk per day to control reading pace
 
 **Modal Infrastructure:**
+- Single codebase with environment detection (dev vs production via `MODAL_ENVIRONMENT`)
 - Persistent volume for SQLite DB and generated EPUBs
 - Webhook endpoint for email ingestion
-- Scheduled cron job (8am UTC daily) sends next unsent chunk
-- Scheduled cron job (every 6 hours) retries failed stories (max 3 attempts)
+- URL submission endpoint for manual story ingestion
+- Scheduled cron jobs (production only): daily chunk sending (8am UTC), retry failed stories (every 6 hours)
+- Dev mode disables scheduled functions for safe testing
 
 ## Development Commands
 
@@ -82,22 +83,31 @@ cp .env.example .env
 
 **Deploy:**
 ```bash
+# Deploy to production (sets MODAL_ENVIRONMENT=prod automatically)
 poetry run modal deploy main.py
 ```
 
 **Local development:**
 ```bash
-# Start local Modal server with live endpoints (hot-reloads on file changes)
-modal serve main_local.py
+# Start local Modal server (defaults to dev mode)
+# - Uses story-data-dev volume and stories-dev.db
+# - Disables scheduled functions
+# - Hot-reloads on file changes
+modal serve main.py
 
 # Process a test story (chunks but doesn't send)
-modal run main_local.py
+modal run main.py
 
 # Manually send next unsent chunk
-modal run main_local.py::send_next_chunk
+modal run main.py::send_daily_chunk
 
-# Inspect database state
-modal run scripts/inspect_db.py
+# Inspect dev database state
+modal run scripts/inspect_db_dev.py
+
+# Manage dev database (list, view, delete stories)
+modal run scripts/manage_dev_db.py::list_stories
+modal run scripts/manage_dev_db.py::view_story --story-id 1
+modal run scripts/manage_dev_db.py::delete_story --story-id 1
 ```
 
 **Local testing (without Modal):**
@@ -155,26 +165,33 @@ poetry run modal secret create story-prep-secrets \
 
 **Full workflow test:**
 ```bash
-# 1. Process a test story
-modal run main_local.py
-# ✅ Should output: "Successfully processed and chunked: Test Story. Chunks will be sent daily."
+# 1. Start dev server
+modal serve main.py
+# ✅ Should output: "🚀 Running in DEVELOPMENT mode"
 
-# 2. Inspect database to see pending chunks
-modal run scripts/inspect_db.py
-# ✅ Should show story with "⏳ PENDING" chunks
+# 2. Submit test story (in another terminal)
+curl -X POST 'https://your-dev-submit-url.modal.run' \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://example.com/story", "title": "Test", "author": "Author"}'
+# ✅ Should return: {"status": "accepted", ...}
 
-# 3. Manually trigger daily send (simulates scheduled function)
-modal run main_local.py::send_next_chunk
+# 3. List stories to verify processing
+modal run scripts/manage_dev_db.py::list_stories
+# ✅ Should show story with status "chunked" and "0/N sent"
+
+# 4. Manually trigger daily send
+modal run main.py::send_daily_chunk
 # ✅ Should send chunk 1/N (in TEST_MODE, logs email details instead of sending)
 
-# 4. Run again to send next chunk
-modal run main_local.py::send_next_chunk
-# ✅ Should send chunk 2/N
+# 5. Verify chunk was sent
+modal run scripts/manage_dev_db.py::view_story --story-id 1
+# ✅ Should show chunk 1 as "✅ SENT"
 
-# 5. Verify all sent
-modal run scripts/inspect_db.py
-# ✅ Should show all chunks as "✅ SENT" and output "No pending chunks - all caught up!"
+# 6. Clean up
+modal run scripts/manage_dev_db.py::delete_story --story-id 1
 ```
+
+**For detailed step-by-step workflow, see:** `docs/TESTING_WORKFLOW.md`
 
 **Monitoring production:**
 - View scheduled function runs: https://modal.com/apps
@@ -203,14 +220,16 @@ Configure your email service to POST parsed emails to this endpoint.
 
 **Import Statements:**
 - When editing files in `src/`, internal imports must use `src.` prefix (e.g., `from src.database import Database`)
-- When editing `main.py` or `main_local.py`, imports must use `src.` prefix
+- When editing `main.py`, imports must use `src.` prefix
 - When editing test files, imports must use `src.` prefix
 - Modal `.add_local_file()` calls must include the `src/` path (e.g., `.add_local_file("src/database.py", "/root/src/database.py")`)
 
 **Modal Development:**
-- Use `modal serve main_local.py` for local development with hot-reload
-- Use `modal deploy main.py` for production deployment
-- Dev and production use separate volumes and databases
+- Use `modal serve main.py` for local development (defaults to dev mode with hot-reload)
+- Use `modal deploy main.py` for production deployment (automatically sets prod mode)
+- Dev and production use separate volumes and databases (`story-data-dev` vs `story-data`)
+- Environment is controlled by `MODAL_ENVIRONMENT` variable (defaults to `dev`)
+- Scheduled functions only run in production mode
 - Always test locally before deploying to production
 
 **Testing:**

@@ -21,11 +21,16 @@ cp .env.example .env
 
 ```bash
 # Start the dev server (keep this running in Terminal 1)
-poetry run modal serve main_local.py
+# Defaults to dev mode automatically
+poetry run modal serve main.py
 ```
 
 **Expected output:**
 ```
+🚀 Running in DEVELOPMENT mode
+   App: nighttime-story-prep-dev
+   Volume: story-data-dev
+   Database: /data/stories-dev.db
 ✓ Created web function submit_url => https://you--nighttime-story-prep-dev-submit-url-dev.modal.run
 ✓ Created web function webhook => https://you--nighttime-story-prep-dev-webhook-dev.modal.run
 ⚡️ Serving... hit Ctrl-C to stop!
@@ -234,7 +239,7 @@ DEV DATABASE STATISTICS
 ### Send Next Chunk (TEST MODE)
 
 ```bash
-poetry run modal run main_local.py::send_next_chunk
+poetry run modal run main.py::send_daily_chunk
 ```
 
 **Expected output:**
@@ -409,8 +414,8 @@ Stopping...
 Here's a complete copy-paste workflow:
 
 ```bash
-# Terminal 1: Start server
-poetry run modal serve main_local.py
+# Terminal 1: Start server (defaults to dev mode)
+poetry run modal serve main.py
 
 # Terminal 2: Submit, test, and cleanup
 export SUBMIT_URL="https://your-submit-url-here.modal.run"
@@ -432,7 +437,7 @@ poetry run modal run scripts/manage_dev_db.py::view_story --story-id 1
 poetry run modal run scripts/manage_dev_db.py::view_chunk --chunk-id 1
 
 # 5. Test sending
-poetry run modal run main_local.py::send_next_chunk
+poetry run modal run main.py::send_daily_chunk
 
 # 6. Verify chunk was marked as sent
 poetry run modal run scripts/manage_dev_db.py::view_story --story-id 1
@@ -512,8 +517,8 @@ modal run scripts/manage_dev_db.py::view_chunk --chunk-id N   # Read chunk
 modal run scripts/manage_dev_db.py::stats                 # Statistics
 
 # WORKFLOW
-modal serve main_local.py                                 # Start server
-modal run main_local.py::send_next_chunk                  # Send next chunk
+modal serve main.py                                       # Start server
+modal run main.py::send_daily_chunk                       # Send next chunk
 
 # CLEANUP
 modal run scripts/manage_dev_db.py::delete_story --story-id N  # Delete one
