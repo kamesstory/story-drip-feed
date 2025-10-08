@@ -4,18 +4,31 @@ import uuid
 from typing import Dict, Any
 
 from src.database import Database, StoryStatus
-from src.email_parser import EmailParser
-from src.chunker import chunk_story, LLMChunker, SimpleChunker, AgentChunker
+from src.chunker import AgentChunker, SimpleChunker
 from src.content_extraction_agent import extract_content
 from src.epub_generator import EPUBGenerator
 from src.kindle_sender import KindleSender
 from src.file_storage import FileStorage
 
+# Environment detection
+# Use MODAL_ENVIRONMENT=prod for production, defaults to dev
+IS_DEV = os.environ.get("MODAL_ENVIRONMENT", "dev") != "prod"
+
+# Configure based on environment
+APP_NAME = "nighttime-story-prep-dev" if IS_DEV else "nighttime-story-prep"
+VOLUME_NAME = "story-data-dev" if IS_DEV else "story-data"
+DB_NAME = "stories-dev.db" if IS_DEV else "stories.db"
+
+print(f"🚀 Running in {'DEVELOPMENT' if IS_DEV else 'PRODUCTION'} mode")
+print(f"   App: {APP_NAME}")
+print(f"   Volume: {VOLUME_NAME}")
+print(f"   Database: /data/{DB_NAME}")
+
 # Create Modal app
-app = modal.App("nighttime-story-prep")
+app = modal.App(APP_NAME)
 
 # Create persistent volume for database and EPUBs
-volume = modal.Volume.from_name("story-data", create_if_missing=True)
+volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 # Define image with dependencies and local Python files
 image = (
@@ -56,7 +69,7 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict with processing status and details
     """
-    db = Database("/data/stories.db")
+    db = Database(f"/data/{DB_NAME}")
     storage = FileStorage("/data")
     email_id = email_data.get("message-id", email_data.get("Message-ID", "unknown"))
 
@@ -197,63 +210,114 @@ def webhook(data: Dict[str, Any]):
     image=image,
     volumes={"/data": volume},
     secrets=[modal.Secret.from_name("story-prep-secrets")],
-    schedule=modal.Cron("0 */6 * * *"),  # Every 6 hours
 )
-def retry_failed_stories():
+@modal.fastapi_endpoint(method="POST")
+def submit_url(data: Dict[str, Any]):
     """
-    Scheduled function to retry failed stories.
+    Manual endpoint for submitting a story URL.
 
-    Runs every 6 hours to retry stories that failed processing.
+    POST a URL (optionally with password) to extract and process.
+
+    Example:
+    curl -X POST https://your-url/submit_url \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "url": "https://example.com/story",
+        "password": "optional-password",
+        "title": "Story Title (optional)",
+        "author": "Author Name (optional)"
+      }'
     """
-    db = Database("/data/stories.db")
-    storage = FileStorage("/data")
-    failed_stories = db.get_failed_stories(max_retries=3)
+    url = data.get("url")
+    if not url:
+        return {"status": "error", "message": "Missing 'url' field"}
 
-    print(f"Found {len(failed_stories)} failed stories to retry")
+    password = data.get("password", "")
+    title = data.get("title", "Story from URL")
+    author = data.get("author", "Unknown Author")
 
-    for story in failed_stories:
-        print(f"Retrying story: {story['title']} (ID: {story['id']})")
+    # Create email-like data structure
+    email_data = {
+        "message-id": f"url-{uuid.uuid4()}",
+        "subject": title,
+        "from": f"{author} <url@manual.com>",
+        "text": f"{url}\nPassword: {password}" if password else url,
+        "html": "",
+    }
 
-        # Try to reconstruct email data from original_email_path if available
-        if story.get("original_email_path"):
-            try:
-                full_path = storage.get_absolute_path(story["original_email_path"])
-                original_email = full_path.read_text()
-                # Split back into text and html
-                parts = original_email.split("\n\n--- HTML ---\n\n", 1)
-                text = parts[0]
-                html = parts[1] if len(parts) > 1 else ""
-            except Exception as e:
-                print(f"Could not read original email: {e}")
-                text = ""
-                html = ""
-        else:
-            # Fallback - read content if available
-            if story.get("content_path"):
+    # Process async (default behavior)
+    result = process_story.spawn(email_data)
+    return {
+        "status": "accepted",
+        "message": f"Processing story from URL: {url}",
+        "call_id": str(result.object_id),
+        "url": url,
+    }
+
+
+# Scheduled functions (production only)
+if not IS_DEV:
+    @app.function(
+        image=image,
+        volumes={"/data": volume},
+        secrets=[modal.Secret.from_name("story-prep-secrets")],
+        schedule=modal.Cron("0 */6 * * *"),  # Every 6 hours
+    )
+    def retry_failed_stories():
+        """
+        Scheduled function to retry failed stories.
+
+        Runs every 6 hours to retry stories that failed processing.
+        """
+        db = Database(f"/data/{DB_NAME}")
+        storage = FileStorage("/data")
+        failed_stories = db.get_failed_stories(max_retries=3)
+
+        print(f"Found {len(failed_stories)} failed stories to retry")
+
+        for story in failed_stories:
+            print(f"Retrying story: {story['title']} (ID: {story['id']})")
+
+            # Try to reconstruct email data from original_email_path if available
+            if story.get("original_email_path"):
                 try:
-                    text = storage.read_story_content(story["content_path"])
-                except Exception:
+                    full_path = storage.get_absolute_path(story["original_email_path"])
+                    original_email = full_path.read_text()
+                    # Split back into text and html
+                    parts = original_email.split("\n\n--- HTML ---\n\n", 1)
+                    text = parts[0]
+                    html = parts[1] if len(parts) > 1 else ""
+                except Exception as e:
+                    print(f"Could not read original email: {e}")
                     text = ""
+                    html = ""
             else:
-                text = ""
-            html = ""
+                # Fallback - read content if available
+                if story.get("content_path"):
+                    try:
+                        text = storage.read_story_content(story["content_path"])
+                    except Exception:
+                        text = ""
+                else:
+                    text = ""
+                html = ""
 
-        email_data = {
-            "message-id": story["email_id"],
-            "text": text,
-            "html": html,
-            "subject": story["title"],
-            "from": story["author"],
-        }
+            email_data = {
+                "message-id": story["email_id"],
+                "text": text,
+                "html": html,
+                "subject": story["title"],
+                "from": story["author"],
+            }
 
-        try:
-            result = process_story.remote(email_data)
-            print(f"Retry result: {result}")
-        except Exception as e:
-            print(f"Retry failed: {e}")
-            db.increment_retry_count(story["id"])
+            try:
+                result = process_story.remote(email_data)
+                print(f"Retry result: {result}")
+            except Exception as e:
+                print(f"Retry failed: {e}")
+                db.increment_retry_count(story["id"])
 
-    volume.commit()
+        volume.commit()
 
 
 @app.function(
@@ -263,62 +327,62 @@ def retry_failed_stories():
     schedule=modal.Cron("0 8 * * *"),  # Every day at 8am UTC
 )
 def send_daily_chunk():
-    """
-    Scheduled function to send one chunk per day to Kindle.
+        """
+        Scheduled function to send one chunk per day to Kindle.
 
-    Runs every day at 8am UTC to send the next unsent chunk.
-    """
-    db = Database("/data/stories.db")
-    next_chunk = db.get_next_unsent_chunk()
+        Runs every day at 8am UTC to send the next unsent chunk.
+        """
+        db = Database(f"/data/{DB_NAME}")
+        next_chunk = db.get_next_unsent_chunk()
 
-    if not next_chunk:
-        print("No unsent chunks found")
-        return
+        if not next_chunk:
+            print("No unsent chunks found")
+            return
 
-    print(f"📤 Sending chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}: {next_chunk['title']} by {next_chunk['author']}")
-    print(f"   Chunk ID: {next_chunk['id']}, Words: {next_chunk['word_count']}")
+        print(f"📤 Sending chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}: {next_chunk['title']} by {next_chunk['author']}")
+        print(f"   Chunk ID: {next_chunk['id']}, Words: {next_chunk['word_count']}")
 
-    try:
-        # Generate EPUB for this chunk
-        epub_gen = EPUBGenerator("/data/epubs")
-        epub_path = epub_gen.create_epub(
-            text=next_chunk["chunk_text"],
-            title=next_chunk["title"],
-            author=next_chunk["author"],
-            chunk_number=next_chunk["chunk_number"],
-            total_chunks=next_chunk["total_chunks"],
-        )
+        try:
+            # Generate EPUB for this chunk
+            epub_gen = EPUBGenerator("/data/epubs")
+            epub_path = epub_gen.create_epub(
+                text=next_chunk["chunk_text"],
+                title=next_chunk["title"],
+                author=next_chunk["author"],
+                chunk_number=next_chunk["chunk_number"],
+                total_chunks=next_chunk["total_chunks"],
+            )
 
-        # Send to Kindle
-        kindle_sender = KindleSender.from_env()
-        success = kindle_sender.send_epubs(
-            epub_paths=[epub_path],
-            title=next_chunk["title"],
-            subject=f"{next_chunk['title']} - Part {next_chunk['chunk_number']}/{next_chunk['total_chunks']}",
-        )
+            # Send to Kindle
+            kindle_sender = KindleSender.from_env()
+            success = kindle_sender.send_epubs(
+                epub_paths=[epub_path],
+                title=next_chunk["title"],
+                subject=f"{next_chunk['title']} - Part {next_chunk['chunk_number']}/{next_chunk['total_chunks']}",
+            )
 
-        if success:
-            # Mark chunk as sent
-            db.mark_chunk_sent(next_chunk["id"])
+            if success:
+                # Mark chunk as sent
+                db.mark_chunk_sent(next_chunk["id"])
 
-            # Check if all chunks for this story have been sent
-            all_chunks = db.get_story_chunks(next_chunk["story_id"])
-            all_sent = all([chunk["sent_to_kindle_at"] for chunk in all_chunks])
+                # Check if all chunks for this story have been sent
+                all_chunks = db.get_story_chunks(next_chunk["story_id"])
+                all_sent = all([chunk["sent_to_kindle_at"] for chunk in all_chunks])
 
-            if all_sent:
-                db.update_story_status(next_chunk["story_id"], StoryStatus.SENT)
-                print(f"✅ All chunks sent for Story ID {next_chunk['story_id']}: {next_chunk['title']}")
+                if all_sent:
+                    db.update_story_status(next_chunk["story_id"], StoryStatus.SENT)
+                    print(f"✅ All chunks sent for Story ID {next_chunk['story_id']}: {next_chunk['title']}")
+                else:
+                    remaining = sum(1 for chunk in all_chunks if not chunk["sent_to_kindle_at"])
+                    print(f"✅ Successfully sent chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
+                    print(f"   {remaining} chunk(s) remaining for this story")
+
+                volume.commit()
             else:
-                remaining = sum(1 for chunk in all_chunks if not chunk["sent_to_kindle_at"])
-                print(f"✅ Successfully sent chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
-                print(f"   {remaining} chunk(s) remaining for this story")
+                print(f"❌ Failed to send chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
 
-            volume.commit()
-        else:
-            print(f"❌ Failed to send chunk {next_chunk['chunk_number']}/{next_chunk['total_chunks']} from Story ID {next_chunk['story_id']}")
-
-    except Exception as e:
-        print(f"❌ Error sending chunk from Story ID {next_chunk.get('story_id', 'unknown')}: {e}")
+        except Exception as e:
+            print(f"❌ Error sending chunk from Story ID {next_chunk.get('story_id', 'unknown')}: {e}")
 
 
 @app.local_entrypoint()
