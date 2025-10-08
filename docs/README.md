@@ -5,6 +5,7 @@ Automated pipeline that receives Patreon stories via email, intelligently chunks
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Modal CLI Tools](#modal-cli-tools)
 - [Local Development with Modal](#local-development-with-modal)
 - [Local Testing Without Modal](#local-testing-without-modal)
 - [Production Deployment](#production-deployment)
@@ -46,6 +47,91 @@ cp .env.example .env
 
 ---
 
+## Modal CLI Tools
+
+Modal provides powerful CLI tools for inspecting and managing your development environment. **Use these instead of web endpoints for debugging!**
+
+### Database Management
+
+```bash
+# List all stories in dev database
+modal run scripts/manage_dev_db.py::list_stories
+
+# View specific story with chunks
+modal run scripts/manage_dev_db.py::view_story --story-id 1
+
+# View chunk text content
+modal run scripts/manage_dev_db.py::view_chunk --chunk-id 1
+
+# Delete a story
+modal run scripts/manage_dev_db.py::delete_story --story-id 1
+
+# Clear all dev data
+modal run scripts/manage_dev_db.py::clear_all
+
+# Show database stats
+modal run scripts/manage_dev_db.py::stats
+
+# Quick inspection
+modal run scripts/inspect_db_dev.py
+```
+
+### Volume/File Operations
+
+```bash
+# List volume contents
+modal volume ls story-data-dev
+modal volume ls story-data-dev /data/raw
+modal volume ls story-data-dev /data/chunks
+
+# Download files
+modal volume get story-data-dev stories-dev.db ./local-dev.db
+modal volume get story-data-dev /data/chunks/story_000001/chunk_001.txt ./chunk.txt
+
+# Upload files (if needed)
+modal volume put story-data-dev ./local-file.txt /data/remote-file.txt
+
+# Delete files
+modal volume rm story-data-dev /data/stories-dev.db
+modal volume rm story-data-dev /data/raw/story_000001 --recursive
+
+# Delete entire volume (nuclear option)
+modal volume delete story-data-dev
+modal volume create story-data-dev
+```
+
+### Interactive Shell
+
+Start an interactive shell with your function's environment (image, volumes, secrets):
+
+```bash
+# Shell with process_story environment
+modal shell main_local.py::process_story
+
+# Inside shell - full access to volume
+> ls /data
+> sqlite3 /data/stories-dev.db
+> cat /data/raw/story_000001/content.txt
+> python
+>>> from src.database import Database
+>>> db = Database("/data/stories-dev.db")
+>>> db.get_all_stories()
+```
+
+### Query Database Locally
+
+```bash
+# Download and query with SQLite
+modal volume get story-data-dev stories-dev.db ./dev.db
+
+sqlite3 ./dev.db <<SQL
+SELECT id, title, status FROM stories;
+SELECT chunk_number, word_count FROM story_chunks WHERE story_id = 1;
+SQL
+```
+
+---
+
 ## Local Development with Modal
 
 Use `main_local.py` for local development with live endpoints that auto-reload on code changes.
@@ -60,7 +146,6 @@ This starts a local development server with:
 - ✅ Separate dev database (`story-data-dev` volume)
 - ✅ Live webhook endpoints
 - ✅ URL submission endpoint
-- ✅ Status checking endpoint
 - ✅ Hot-reload on file changes
 - ✅ Won't affect production data
 
@@ -68,7 +153,6 @@ This starts a local development server with:
 ```
 ✓ Created web function submit_url => https://you--nighttime-story-prep-dev-submit-url.modal.run
 ✓ Created web function webhook => https://you--nighttime-story-prep-dev-webhook.modal.run
-✓ Created web function status => https://you--nighttime-story-prep-dev-status.modal.run
 ```
 
 ### Using the Dev Server
@@ -99,38 +183,73 @@ curl -X POST $SUBMIT_URL \
   }'
 ```
 
-#### Check Status
+#### Inspect Database & Stories
+
+Use Modal CLI tools to inspect your dev database:
 
 ```bash
-curl $STATUS_URL | jq
+# List all stories
+modal run scripts/manage_dev_db.py::list_stories
+
+# View specific story with all chunks
+modal run scripts/manage_dev_db.py::view_story --story-id 1
+
+# View full chunk text
+modal run scripts/manage_dev_db.py::view_chunk --chunk-id 1
+
+# Quick inspection
+modal run scripts/inspect_db_dev.py
 ```
 
-Response shows all stories and next chunk to send:
-```json
-{
-  "status": "ok",
-  "database": "/data/stories-dev.db",
-  "stories": [
-    {
-      "id": 1,
-      "title": "Test Story",
-      "status": "chunked",
-      "word_count": 7200,
-      "chunks": "0/2"
-    }
-  ],
-  "next_to_send": {
-    "title": "Test Story",
-    "chunk": "1/2",
-    "words": 3600
-  }
-}
+#### Download & Browse Files
+
+```bash
+# Download database locally
+modal volume get story-data-dev stories-dev.db ./dev.db
+sqlite3 ./dev.db "SELECT * FROM stories"
+
+# List files in volume
+modal volume ls story-data-dev /data/raw
+modal volume ls story-data-dev /data/chunks
+
+# Download specific files
+modal volume get story-data-dev /data/raw/story_000001/content.txt ./content.txt
+modal volume get story-data-dev /data/chunks/story_000001/chunk_001.txt ./chunk.txt
+```
+
+#### Interactive Shell
+
+Start a shell with the volume mounted:
+
+```bash
+# Shell with same environment as process_story function
+modal shell main_local.py::process_story
+
+# Inside shell, explore the volume
+> ls /data
+> sqlite3 /data/stories-dev.db
+> cat /data/raw/story_000001/content.txt
+> python  # can import and use your modules
 ```
 
 #### Send Next Chunk Manually
 
 ```bash
 modal run main_local.py::send_next_chunk
+```
+
+#### Clean Up Test Data
+
+```bash
+# Delete specific story
+modal run scripts/manage_dev_db.py::delete_story --story-id 1
+
+# Clear all dev data (nuclear option)
+modal run scripts/manage_dev_db.py::clear_all
+
+# Or delete entire volume and recreate
+modal volume delete story-data-dev
+modal volume create story-data-dev
 ```
 
 ### Typical Dev Workflow
@@ -140,15 +259,25 @@ modal run main_local.py::send_next_chunk
 modal serve main_local.py
 
 # Terminal 2: Submit test story
-curl -X POST https://your-dev/submit_url -d '{"url": "..."}'
+curl -X POST https://your-dev/submit_url -d '{"url": "...", "password": "..."}'
 
 # Watch Terminal 1 for processing logs
 
-# Check result
-curl https://your-dev/status | jq
+# Check what was created
+modal run scripts/manage_dev_db.py::list_stories
+
+# View chunk content
+modal run scripts/manage_dev_db.py::view_chunk --chunk-id 1
+
+# Or download and read locally
+modal volume get story-data-dev /data/chunks/story_000001/chunk_001.txt ./chunk.txt
+cat ./chunk.txt
 
 # Test sending
 modal run main_local.py::send_next_chunk
+
+# Clean up
+modal run scripts/manage_dev_db.py::delete_story --story-id 1
 
 # Iterate: Edit code → Auto-reload → Test again
 ```

@@ -4,7 +4,8 @@
       "Bash(for file in tests/test_*.py)",
       "Bash(do sed -i '' 's/^from \\(chunker\\|database\\|email_parser\\|content_extraction_agent\\|epub_generator\\|kindle_sender\\|file_storage\\) import/from src.\\1 import/g' \"$file\")",
       "Bash(do sed -i '' -E 's/^from (chunker|database|email_parser|content_extraction_agent|epub_generator|kindle_sender|file_storage) import/from src.\\1 import/g' \"$file\")",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(modal:*)"
     ],
     "deny": [],
     "ask": []

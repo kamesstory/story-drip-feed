@@ -289,3 +289,66 @@ class Database:
             """, (StoryStatus.CHUNKED.value,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
+    def get_story_by_id(self, story_id: int) -> Optional[Dict[str, Any]]:
+        """Get a story by its ID."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT * FROM stories WHERE id = ?
+            """, (story_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_all_stories(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get all stories, most recent first."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT * FROM stories
+                ORDER BY received_at DESC
+                LIMIT ?
+            """, (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_chunk_by_id(self, chunk_id: int) -> Optional[Dict[str, Any]]:
+        """Get a specific chunk by its ID."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT sc.*, s.title, s.author
+                FROM story_chunks sc
+                JOIN stories s ON sc.story_id = s.id
+                WHERE sc.id = ?
+            """, (chunk_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def delete_story(self, story_id: int) -> bool:
+        """Delete a story and all its chunks."""
+        with self.get_connection() as conn:
+            # Check if story exists
+            cursor = conn.execute("SELECT id FROM stories WHERE id = ?", (story_id,))
+            if not cursor.fetchone():
+                return False
+
+            # Delete chunks first (foreign key constraint)
+            conn.execute("DELETE FROM story_chunks WHERE story_id = ?", (story_id,))
+
+            # Delete story
+            conn.execute("DELETE FROM stories WHERE id = ?", (story_id,))
+
+            return True
+
+    def delete_all_stories(self):
+        """Delete all stories and chunks. USE WITH CAUTION!"""
+        with self.get_connection() as conn:
+            conn.execute("DELETE FROM story_chunks")
+            conn.execute("DELETE FROM stories")
+
+    def reset_chunk_status(self, chunk_id: int) -> bool:
+        """Mark a chunk as unsent (for re-testing)."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                UPDATE story_chunks
+                SET sent_to_kindle_at = NULL
+                WHERE id = ?
+            """, (chunk_id,))
+            return cursor.rowcount > 0

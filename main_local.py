@@ -304,66 +304,6 @@ def submit_url(data: Dict[str, Any]):
     volumes={"/data": volume},
     secrets=[modal.Secret.from_name("story-prep-secrets")],
 )
-@modal.web_endpoint(method="GET")
-def status():
-    """
-    Check development database status.
-
-    GET https://your-dev-url/status
-    """
-    db = Database("/data/stories-dev.db")
-
-    try:
-        # Get all stories
-        all_stories = []
-        with db.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT id, title, author, status, word_count,
-                       (SELECT COUNT(*) FROM story_chunks WHERE story_id = stories.id) as chunk_count,
-                       (SELECT COUNT(*) FROM story_chunks WHERE story_id = stories.id AND sent_to_kindle_at IS NOT NULL) as sent_count
-                FROM stories
-                ORDER BY received_at DESC
-                LIMIT 20
-            """)
-            for row in cursor.fetchall():
-                all_stories.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "author": row[2],
-                    "status": row[3],
-                    "word_count": row[4],
-                    "chunks": f"{row[6]}/{row[5]}" if row[5] else "0/0",
-                })
-
-        # Get next unsent chunk
-        next_chunk = db.get_next_unsent_chunk()
-        next_to_send = None
-        if next_chunk:
-            next_to_send = {
-                "title": next_chunk["title"],
-                "chunk": f"{next_chunk['chunk_number']}/{next_chunk['total_chunks']}",
-                "words": next_chunk["word_count"],
-            }
-
-        return {
-            "status": "ok",
-            "database": "/data/stories-dev.db",
-            "stories": all_stories,
-            "next_to_send": next_to_send,
-        }
-
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e),
-        }
-
-
-@app.function(
-    image=image,
-    volumes={"/data": volume},
-    secrets=[modal.Secret.from_name("story-prep-secrets")],
-)
 def send_next_chunk():
     """
     Manually send the next chunk (for testing).
