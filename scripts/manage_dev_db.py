@@ -18,7 +18,7 @@ volume = modal.Volume.from_name("story-data-dev", create_if_missing=True)
 
 image = (
     modal.Image.debian_slim()
-    .pip_install("python-dateutil")
+    .pip_install("python-dateutil", "pyyaml")
     .add_local_file("src/database.py", "/root/src/database.py")
     .add_local_file("src/file_storage.py", "/root/src/file_storage.py")
 )
