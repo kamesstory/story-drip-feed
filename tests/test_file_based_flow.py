@@ -2,10 +2,10 @@
 Test file-based architecture locally.
 """
 
-from file_storage import LocalFileStorage
-from database import Database, StoryStatus
-from content_extraction_agent import extract_content
-from chunker import SimpleChunker
+from src.file_storage import LocalFileStorage
+from src.database import Database, StoryStatus
+from src.content_extraction_agent import extract_content
+from src.chunker import SimpleChunker
 import os
 import shutil
 

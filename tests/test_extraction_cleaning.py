@@ -4,9 +4,9 @@ Test that extraction properly removes metadata and boilerplate.
 
 import os
 import shutil
-from file_storage import LocalFileStorage
-from database import Database
-from content_extraction_agent import extract_content
+from src.file_storage import LocalFileStorage
+from src.database import Database
+from src.content_extraction_agent import extract_content
 
 def test_metadata_removal():
     """Test that agent extraction removes all metadata."""

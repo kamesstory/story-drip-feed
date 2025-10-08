@@ -193,6 +193,30 @@ class Database:
                 WHERE id = ?
             """, (word_count, story_id))
 
+    def update_story_metadata(self, story_id: int, title: Optional[str] = None,
+                              author: Optional[str] = None, extraction_method: Optional[str] = None):
+        """Update story title, author, and extraction method."""
+        with self.get_connection() as conn:
+            updates = []
+            values = []
+            if title:
+                updates.append("title = ?")
+                values.append(title)
+            if author:
+                updates.append("author = ?")
+                values.append(author)
+            if extraction_method:
+                updates.append("extraction_method = ?")
+                values.append(extraction_method)
+
+            if updates:
+                values.append(story_id)
+                conn.execute(f"""
+                    UPDATE stories
+                    SET {', '.join(updates)}
+                    WHERE id = ?
+                """, tuple(values))
+
     def create_chunk(self, story_id: int, chunk_number: int, total_chunks: int,
                     chunk_text: str, word_count: int, epub_path: Optional[str] = None) -> int:
         """Create a story chunk record."""

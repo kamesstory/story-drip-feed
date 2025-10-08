@@ -1,20 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(poetry run python:*)",
-      "Bash(awk:*)",
-      "Bash(grep:*)",
-      "Bash(./update-secrets.sh)",
-      "Bash(poetry run modal:*)",
-      "Bash(unzip:*)",
-      "WebSearch",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:docs.patreon.com)",
-      "Bash(python3:*)",
-      "Bash(poetry lock:*)",
-      "Bash(poetry install:*)",
-      "Bash(chmod:*)"
-    ]
+      "Bash(for file in tests/test_*.py)",
+      "Bash(do sed -i '' 's/^from \\(chunker\\|database\\|email_parser\\|content_extraction_agent\\|epub_generator\\|kindle_sender\\|file_storage\\) import/from src.\\1 import/g' \"$file\")",
+      "Bash(do sed -i '' -E 's/^from (chunker|database|email_parser|content_extraction_agent|epub_generator|kindle_sender|file_storage) import/from src.\\1 import/g' \"$file\")",
+      "Bash(tree:*)"
+    ],
+    "deny": [],
+    "ask": []
   },
   "enableAllProjectMcpServers": false
 }

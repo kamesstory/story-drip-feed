@@ -2,10 +2,10 @@
 Test chunking with a real story example.
 """
 
-from file_storage import LocalFileStorage
-from database import Database, StoryStatus
-from content_extraction_agent import extract_content
-from chunker import AgentChunker, SimpleChunker
+from src.file_storage import LocalFileStorage
+from src.database import Database, StoryStatus
+from src.content_extraction_agent import extract_content
+from src.chunker import AgentChunker, SimpleChunker
 import os
 import shutil
 

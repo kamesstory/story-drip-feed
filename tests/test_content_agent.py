@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-from content_extraction_agent import extract_content
+from src.content_extraction_agent import extract_content
 
 load_dotenv()
 

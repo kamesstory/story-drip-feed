@@ -1,6 +1,6 @@
 """Test that email parser works with non-password-protected URLs."""
 
-from email_parser import EmailParser
+from src.email_parser import EmailParser
 
 def test_public_url():
     """Test parsing an email with a public URL (no password required)."""

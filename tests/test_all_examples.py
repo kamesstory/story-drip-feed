@@ -4,10 +4,10 @@ Test chunking across all example stories and show comparison.
 
 import os
 import glob
-from file_storage import LocalFileStorage
-from database import Database, StoryStatus
-from content_extraction_agent import extract_content
-from chunker import AgentChunker, SimpleChunker
+from src.file_storage import LocalFileStorage
+from src.database import Database, StoryStatus
+from src.content_extraction_agent import extract_content
+from src.chunker import AgentChunker, SimpleChunker
 import shutil
 
 def test_story(story_file: str, use_agent: bool = True):

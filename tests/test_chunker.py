@@ -3,7 +3,7 @@
 
 import os
 from dotenv import load_dotenv
-from chunker import LLMChunker, SimpleChunker
+from src.chunker import LLMChunker, SimpleChunker
 
 # Load environment variables
 load_dotenv()

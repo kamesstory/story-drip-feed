@@ -6,9 +6,9 @@ Usage:
     poetry run python test_html_pipeline.py examples/inputs/wandering-inn-example-1.txt
 """
 import sys
-from email_parser import EmailParser
-from chunker import LLMChunker, SimpleChunker
-from epub_generator import EPUBGenerator
+from src.email_parser import EmailParser
+from src.chunker import LLMChunker, SimpleChunker
+from src.epub_generator import EPUBGenerator
 
 
 def test_pipeline(file_path: str, use_llm: bool = True):

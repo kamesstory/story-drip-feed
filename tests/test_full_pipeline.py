@@ -4,12 +4,12 @@ Test the complete end-to-end pipeline from email ingestion to Kindle sending.
 
 import os
 import shutil
-from file_storage import LocalFileStorage
-from database import Database, StoryStatus
-from content_extraction_agent import extract_content
-from chunker import AgentChunker, SimpleChunker
-from epub_generator import EPUBGenerator
-from kindle_sender import KindleSender
+from src.file_storage import LocalFileStorage
+from src.database import Database, StoryStatus
+from src.content_extraction_agent import extract_content
+from src.chunker import AgentChunker, SimpleChunker
+from src.epub_generator import EPUBGenerator
+from src.kindle_sender import KindleSender
 
 def test_full_pipeline():
     """Test complete workflow: email → extract → chunk → EPUB → (simulate) Kindle send"""

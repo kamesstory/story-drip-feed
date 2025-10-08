@@ -3,13 +3,13 @@ import os
 import uuid
 from typing import Dict, Any
 
-from database import Database, StoryStatus
-from email_parser import EmailParser
-from chunker import chunk_story, LLMChunker, SimpleChunker, AgentChunker
-from content_extraction_agent import extract_content
-from epub_generator import EPUBGenerator
-from kindle_sender import KindleSender
-from file_storage import FileStorage
+from src.database import Database, StoryStatus
+from src.email_parser import EmailParser
+from src.chunker import chunk_story, LLMChunker, SimpleChunker, AgentChunker
+from src.content_extraction_agent import extract_content
+from src.epub_generator import EPUBGenerator
+from src.kindle_sender import KindleSender
+from src.file_storage import FileStorage
 
 # Create Modal app
 app = modal.App("nighttime-story-prep")
@@ -29,13 +29,13 @@ image = (
         "anthropic",
         "pyyaml",
     )
-    .add_local_file("database.py", "/root/database.py")
-    .add_local_file("email_parser.py", "/root/email_parser.py")
-    .add_local_file("chunker.py", "/root/chunker.py")
-    .add_local_file("content_extraction_agent.py", "/root/content_extraction_agent.py")
-    .add_local_file("epub_generator.py", "/root/epub_generator.py")
-    .add_local_file("kindle_sender.py", "/root/kindle_sender.py")
-    .add_local_file("file_storage.py", "/root/file_storage.py")
+    .add_local_file("src/database.py", "/root/src/database.py")
+    .add_local_file("src/email_parser.py", "/root/src/email_parser.py")
+    .add_local_file("src/chunker.py", "/root/src/chunker.py")
+    .add_local_file("src/content_extraction_agent.py", "/root/src/content_extraction_agent.py")
+    .add_local_file("src/epub_generator.py", "/root/src/epub_generator.py")
+    .add_local_file("src/kindle_sender.py", "/root/src/kindle_sender.py")
+    .add_local_file("src/file_storage.py", "/root/src/file_storage.py")
     .add_local_file("examples/inputs/pale-lights-example-1.txt", "/root/examples/inputs/pale-lights-example-1.txt")
 )
 
@@ -99,6 +99,12 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
             story_id,
             content_path=content_path,
             metadata_path=metadata_path
+        )
+        db.update_story_metadata(
+            story_id,
+            title=metadata.get('title'),
+            author=metadata.get('author'),
+            extraction_method=metadata.get('extraction_method')
         )
 
         # Chunk the story - use Agent chunker by default with fallback to SimpleChunker

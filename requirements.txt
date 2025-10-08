@@ -1,5 +1,0 @@
-modal
-ebooklib
-beautifulsoup4
-lxml
-python-dateutil

@@ -3,7 +3,7 @@ import os
 from typing import List, Tuple, Optional, Dict, Any
 from abc import ABC, abstractmethod
 import anthropic
-from file_storage import FileStorage
+from src.file_storage import FileStorage
 
 
 class ChunkingStrategy(ABC):

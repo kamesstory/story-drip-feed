@@ -14,8 +14,8 @@ Outputs are saved to Modal volume as files:
 import os
 import re
 from typing import Optional, Dict, Any, Tuple
-from email_parser import EmailParser, InlineTextStrategy, PasswordProtectedURLStrategy
-from file_storage import FileStorage
+from src.email_parser import EmailParser, InlineTextStrategy, PasswordProtectedURLStrategy
+from src.file_storage import FileStorage
 
 
 async def extract_content_with_agent(email_data: Dict[str, Any], story_id: int,

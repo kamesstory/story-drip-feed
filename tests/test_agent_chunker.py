@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-from chunker import AgentChunker, LLMChunker
+from src.chunker import AgentChunker, LLMChunker
 
 load_dotenv()
 

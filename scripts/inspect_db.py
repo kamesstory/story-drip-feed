@@ -6,7 +6,7 @@ Usage:
     poetry run python inspect_db.py
 """
 import modal
-from database import Database, StoryStatus
+from src.database import Database, StoryStatus
 
 app = modal.App("inspect-db")
 
@@ -16,7 +16,7 @@ volume = modal.Volume.from_name("story-data", create_if_missing=True)
 image = (
     modal.Image.debian_slim()
     .pip_install("python-dateutil")
-    .add_local_file("database.py", "/root/database.py")
+    .add_local_file("src/database.py", "/root/src/database.py")
 )
 
 

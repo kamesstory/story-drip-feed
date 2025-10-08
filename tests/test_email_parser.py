@@ -6,7 +6,7 @@ Usage:
     poetry run python test_email_parser.py examples/inputs/wandering-inn-example-1.txt
 """
 import sys
-from email_parser import EmailParser
+from src.email_parser import EmailParser
 
 
 def test_email_parser(file_path: str):
