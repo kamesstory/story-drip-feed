@@ -40,7 +40,7 @@ poetry run python tests/test_full_pipeline.py
 
 ```bash
 # Terminal 1: Start dev server (auto-reloads on changes)
-modal serve main.py
+poetry run modal serve main.py
 
 # Terminal 2: Submit test story
 curl -X POST 'https://your-dev-submit-url.modal.run' \
@@ -48,14 +48,14 @@ curl -X POST 'https://your-dev-submit-url.modal.run' \
   -d '{"url": "https://example.com/story", "title": "Test", "author": "Author"}'
 
 # Inspect database
-modal run scripts/manage_dev_db.py::list_stories
-modal run scripts/manage_dev_db.py::view_story --story-id 1
+poetry run modal run scripts/manage_dev_db.py::list_stories
+poetry run modal run scripts/manage_dev_db.py::view_story --story-id 1
 
 # Manually send next chunk
-modal run main.py::send_daily_chunk
+poetry run modal run main.py::send_daily_chunk
 
 # Clean up
-modal run scripts/manage_dev_db.py::delete_story --story-id 1
+poetry run modal run scripts/manage_dev_db.py::delete_story --story-id 1
 ```
 
 ## Configuration
@@ -107,6 +107,7 @@ main.py                      # Modal app (dev + prod)
 ## Architecture
 
 **Pipeline Flow:**
+
 1. Email webhook → `extract_content()` extracts story (AI-powered with fallbacks)
 2. Intelligent chunking splits at natural narrative breaks (AgentChunker → LLMChunker → SimpleChunker)
 3. Chunks saved to SQLite database with metadata
@@ -116,6 +117,7 @@ main.py                      # Modal app (dev + prod)
 7. Status tracking: pending → processing → chunked → sent/failed
 
 **Modal Infrastructure:**
+
 - Single codebase with environment detection (dev vs prod via `MODAL_ENVIRONMENT`)
 - Persistent volumes: `story-data-dev` (dev) / `story-data` (prod)
 - Scheduled functions (prod only): daily sends (8am UTC), retry failures (every 6 hours)
@@ -135,58 +137,60 @@ poetry run python tests/test_full_pipeline.py
 poetry run python tests/test_all_examples.py
 
 # Modal development
-modal serve main.py                      # Start dev server
-modal run main.py::send_daily_chunk      # Send next chunk
-modal run scripts/manage_dev_db.py::list_stories
-modal run scripts/manage_dev_db.py::view_story --story-id 1
-modal run scripts/manage_dev_db.py::delete_story --story-id 1
+poetry run modal serve main.py                      # Start dev server
+poetry run modal run main.py::send_daily_chunk      # Send next chunk
+poetry run modal run scripts/manage_dev_db.py::list_stories
+poetry run modal run scripts/manage_dev_db.py::view_story --story-id 1
+poetry run modal run scripts/manage_dev_db.py::delete_story --story-id 1
 
 # Production
-modal deploy main.py                     # Deploy
-modal run scripts/inspect_db.py          # Check production DB
-modal logs nighttime-story-prep.send_daily_chunk
+poetry run modal deploy main.py                     # Deploy
+poetry run modal run scripts/inspect_db.py          # Check production DB
+poetry run modal logs nighttime-story-prep.send_daily_chunk
 
 # Database inspection
-modal volume get story-data-dev stories-dev.db ./local.db
+poetry run modal volume get story-data-dev stories-dev.db ./local.db
 sqlite3 ./local.db "SELECT * FROM stories"
 ```
 
 ## Testing
 
-| Test | Purpose |
-|------|---------|
-| `tests/test_full_pipeline.py` | Complete end-to-end test |
-| `tests/test_all_examples.py` | Test all example stories |
-| `tests/test_chunker.py` | Test chunking algorithms |
+| Test                          | Purpose                      |
+| ----------------------------- | ---------------------------- |
+| `tests/test_full_pipeline.py` | Complete end-to-end test     |
+| `tests/test_all_examples.py`  | Test all example stories     |
+| `tests/test_chunker.py`       | Test chunking algorithms     |
 | `tests/test_agent_chunker.py` | Compare Agent vs LLM chunker |
-| `tests/test_content_agent.py` | Test AI extraction |
-| `scripts/test_story.sh` | Quick CLI test |
+| `tests/test_content_agent.py` | Test AI extraction           |
+| `scripts/test_story.sh`       | Quick CLI test               |
 
 ## Debugging
 
 ```bash
 # Check logs
-modal logs nighttime-story-prep-dev.process_story
+poetry run modal logs nighttime-story-prep-dev.process_story
 
 # Download database for inspection
-modal volume get story-data-dev stories-dev.db ./dev.db
+poetry run modal volume get story-data-dev stories-dev.db ./dev.db
 sqlite3 ./dev.db
 
 # List volume contents
-modal volume ls story-data-dev /data/raw
-modal volume ls story-data-dev /data/chunks
+poetry run modal volume ls story-data-dev /data/raw
+poetry run modal volume ls story-data-dev /data/chunks
 
 # Interactive shell with volume mounted
-modal shell main.py::process_story
+poetry run modal shell main.py::process_story
 ```
 
 ## Production Setup
 
 After deploying, configure your email service to forward Patreon emails to:
+
 ```
 https://your-username--nighttime-story-prep-webhook.modal.run
 ```
 
 Production schedules:
+
 - **8am UTC**: Send next unsent chunk
 - **Every 6 hours**: Retry failed stories (max 3 attempts)
