@@ -1,78 +1,192 @@
 # Nighttime Story Prep
 
-Automatically processes Patreon stories from email, chunks them into readable segments (~10k words), converts to EPUB, and sends to Kindle.
+Automated pipeline that receives Patreon stories via email, chunks them using AI, generates EPUBs, and delivers ONE chunk per day to Kindle at 8am UTC.
 
 ## Features
 
-- **Automatic email processing**: Receives stories via email webhook
-- **Intelligent chunking**: Splits stories into ~10k word segments (extensible for AI-based chunking)
-- **EPUB generation**: Creates properly formatted EPUB files
-- **Kindle delivery**: Automatically sends to your Kindle email
-- **Robust error handling**: Tracks processing status and retries failures
+- **Email ingestion**: Webhook receives stories from Mailgun/SendGrid/etc
+- **AI content extraction**: Strips metadata, keeps only story text
+- **Intelligent chunking**: ~5k word chunks at natural narrative breaks
+- **Daily drip-feed**: Sends one chunk per day to control reading pace
+- **EPUB generation**: Creates properly formatted ebooks
+- **Robust tracking**: SQLite database with retry logic
 
-## Setup
+## Quick Start
 
-### 1. Install dependencies
 ```bash
-pip install -r requirements.txt
+# Install and setup
+poetry install
+poetry run modal token new
+cp .env.example .env
+# Edit .env with your credentials
+
+# Deploy to production
+poetry run modal deploy main.py
 ```
 
-### 2. Set up Modal
+## Development
+
+### Local testing (no Modal)
+
 ```bash
-modal token new
+# Quick test
+./scripts/quickstart.sh
+
+# Full pipeline test
+poetry run python tests/test_full_pipeline.py
 ```
 
-### 3. Create Modal secret with credentials
+### Modal development server
+
 ```bash
-modal secret create story-prep-secrets \
-  KINDLE_EMAIL=your-kindle@kindle.com \
-  SMTP_HOST=smtp.gmail.com \
-  SMTP_PORT=587 \
-  SMTP_USER=your-email@gmail.com \
-  SMTP_PASSWORD=your-app-password
+# Terminal 1: Start dev server (auto-reloads on changes)
+modal serve main.py
+
+# Terminal 2: Submit test story
+curl -X POST 'https://your-dev-submit-url.modal.run' \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://example.com/story", "title": "Test", "author": "Author"}'
+
+# Inspect database
+modal run scripts/manage_dev_db.py::list_stories
+modal run scripts/manage_dev_db.py::view_story --story-id 1
+
+# Manually send next chunk
+modal run main.py::send_daily_chunk
+
+# Clean up
+modal run scripts/manage_dev_db.py::delete_story --story-id 1
 ```
 
-**For Gmail users**: Use an [App Password](https://support.google.com/accounts/answer/185833) instead of your regular password.
+## Configuration
 
-### 4. Deploy to Modal
+Create `.env` or use Modal secrets:
+
 ```bash
-modal deploy main.py
+# AI Features (requires ANTHROPIC_API_KEY)
+USE_AGENT_EXTRACTION=true    # AI-powered content extraction
+USE_AGENT_CHUNKER=true       # AI-powered chunking
+USE_LLM_CHUNKER=true         # Fallback LLM chunker
+TARGET_WORDS=5000            # Target words per chunk
+
+# Email Delivery
+KINDLE_EMAIL=you@kindle.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password  # Use Gmail App Password
+
+# Testing
+TEST_MODE=true               # Simulate sending (don't actually send)
+
+# Update Modal secrets from .env
+./scripts/update-secrets.sh
 ```
-
-This will output your webhook URL (e.g., `https://username--nighttime-story-prep-webhook.modal.run`)
-
-### 5. Configure email forwarding
-
-Set up an email service (Mailgun, SendGrid, or Cloudflare Email Workers) to forward Patreon emails to your webhook URL.
-
-**Example with Mailgun:**
-1. Add your domain to Mailgun
-2. Create a route that forwards to your webhook URL
-3. Forward Patreon notification emails to your Mailgun address
-
-## Testing
-
-Run locally with test data:
-```bash
-modal run main.py
-```
-
-## Architecture
-
-- **Email ingestion**: Webhook receives parsed emails from email service
-- **Processing**: Modal functions parse, chunk, and convert stories
-- **Storage**: SQLite on Modal Volume tracks processing status
-- **Delivery**: SMTP sends EPUBs to Kindle email
-- **Retry logic**: Cron job retries failed stories every 6 hours (max 3 attempts)
 
 ## Project Structure
 
 ```
-├── main.py             # Modal app with webhook and processing logic
-├── database.py         # SQLite database for tracking stories
-├── email_parser.py     # Extract story content from emails (strategy pattern)
-├── chunker.py          # Text chunking (strategy pattern, extensible)
-├── epub_generator.py   # EPUB file generation
-├── kindle_sender.py    # SMTP delivery to Kindle
-└── requirements.txt    # Python dependencies
+src/                          # Core application
+├── chunker.py               # Chunking strategies (Agent/LLM/Simple)
+├── content_extraction_agent.py  # AI content extraction
+├── database.py              # SQLite management
+├── email_parser.py          # Email parsing strategies
+├── epub_generator.py        # EPUB generation
+├── file_storage.py          # File I/O
+└── kindle_sender.py         # SMTP email sending
+
+scripts/                     # Utilities
+├── manage_dev_db.py         # Database inspection/management
+├── quickstart.sh            # One-command setup
+└── update-secrets.sh        # Update Modal secrets
+
+tests/                       # Test files
+main.py                      # Modal app (dev + prod)
 ```
+
+## Architecture
+
+**Pipeline Flow:**
+1. Email webhook → `extract_content()` extracts story (AI-powered with fallbacks)
+2. Intelligent chunking splits at natural narrative breaks (AgentChunker → LLMChunker → SimpleChunker)
+3. Chunks saved to SQLite database with metadata
+4. `send_daily_chunk` scheduled function (8am UTC) sends ONE chunk
+5. `EPUBGenerator` creates EPUB on-demand
+6. `KindleSender` delivers via SMTP
+7. Status tracking: pending → processing → chunked → sent/failed
+
+**Modal Infrastructure:**
+- Single codebase with environment detection (dev vs prod via `MODAL_ENVIRONMENT`)
+- Persistent volumes: `story-data-dev` (dev) / `story-data` (prod)
+- Scheduled functions (prod only): daily sends (8am UTC), retry failures (every 6 hours)
+- Dev mode disables schedules for safe testing
+
+## Common Commands
+
+```bash
+# Setup
+poetry install
+poetry run modal token new
+./scripts/update-secrets.sh
+
+# Local testing
+./scripts/quickstart.sh
+poetry run python tests/test_full_pipeline.py
+poetry run python tests/test_all_examples.py
+
+# Modal development
+modal serve main.py                      # Start dev server
+modal run main.py::send_daily_chunk      # Send next chunk
+modal run scripts/manage_dev_db.py::list_stories
+modal run scripts/manage_dev_db.py::view_story --story-id 1
+modal run scripts/manage_dev_db.py::delete_story --story-id 1
+
+# Production
+modal deploy main.py                     # Deploy
+modal run scripts/inspect_db.py          # Check production DB
+modal logs nighttime-story-prep.send_daily_chunk
+
+# Database inspection
+modal volume get story-data-dev stories-dev.db ./local.db
+sqlite3 ./local.db "SELECT * FROM stories"
+```
+
+## Testing
+
+| Test | Purpose |
+|------|---------|
+| `tests/test_full_pipeline.py` | Complete end-to-end test |
+| `tests/test_all_examples.py` | Test all example stories |
+| `tests/test_chunker.py` | Test chunking algorithms |
+| `tests/test_agent_chunker.py` | Compare Agent vs LLM chunker |
+| `tests/test_content_agent.py` | Test AI extraction |
+| `scripts/test_story.sh` | Quick CLI test |
+
+## Debugging
+
+```bash
+# Check logs
+modal logs nighttime-story-prep-dev.process_story
+
+# Download database for inspection
+modal volume get story-data-dev stories-dev.db ./dev.db
+sqlite3 ./dev.db
+
+# List volume contents
+modal volume ls story-data-dev /data/raw
+modal volume ls story-data-dev /data/chunks
+
+# Interactive shell with volume mounted
+modal shell main.py::process_story
+```
+
+## Production Setup
+
+After deploying, configure your email service to forward Patreon emails to:
+```
+https://your-username--nighttime-story-prep-webhook.modal.run
+```
+
+Production schedules:
+- **8am UTC**: Send next unsent chunk
+- **Every 6 hours**: Retry failed stories (max 3 attempts)
