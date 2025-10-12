@@ -164,6 +164,7 @@ def test_full_pipeline():
     # Set test mode
     os.environ["TEST_MODE"] = "true"
     os.environ["KINDLE_EMAIL"] = "test@kindle.com"
+    os.environ["FROM_EMAIL"] = "test@gmail.com"
     os.environ["SMTP_HOST"] = "smtp.gmail.com"
     os.environ["SMTP_PORT"] = "587"
     os.environ["SMTP_USER"] = "test@gmail.com"

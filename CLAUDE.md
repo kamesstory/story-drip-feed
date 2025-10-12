@@ -73,6 +73,9 @@ Environment variables (`.env` or Modal secrets):
 - `USE_AGENT_CHUNKER=true` - AI-powered chunking
 - `USE_LLM_CHUNKER=true` - Fallback LLM chunker
 - `TARGET_WORDS=5000` - Words per chunk
+- `KINDLE_EMAIL` - Destination email for stories
+- `FROM_EMAIL` - From address for outgoing emails
+- `SMTP_USER` - SMTP authentication username
 - `TEST_MODE=true` - Simulate email sending
 
 ## Testing Strategy

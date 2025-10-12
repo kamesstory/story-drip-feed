@@ -13,6 +13,7 @@ class KindleSender:
     def __init__(
         self,
         kindle_email: str,
+        from_email: str,
         smtp_host: str,
         smtp_port: int,
         smtp_user: str,
@@ -24,13 +25,15 @@ class KindleSender:
 
         Args:
             kindle_email: Your Kindle email address (e.g., username@kindle.com)
+            from_email: Email address to use in From field
             smtp_host: SMTP server hostname (e.g., smtp.gmail.com)
             smtp_port: SMTP server port (e.g., 587 for TLS)
-            smtp_user: SMTP username/email
+            smtp_user: SMTP username for authentication
             smtp_password: SMTP password (use app password for Gmail)
             test_mode: If True, only log email details without actually sending
         """
         self.kindle_email = kindle_email
+        self.from_email = from_email
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
         self.smtp_user = smtp_user
@@ -81,7 +84,7 @@ class KindleSender:
             print("=" * 80)
             print("TEST MODE - Email would be sent with the following details:")
             print("=" * 80)
-            print(f"From: {self.smtp_user}")
+            print(f"From: {self.from_email}")
             print(f"To: {self.kindle_email}")
             print(f"Subject: {subject or 'Story Delivery'}")
             print(f"Title: {title or 'N/A'}")
@@ -100,7 +103,7 @@ class KindleSender:
         try:
             # Create message
             msg = MIMEMultipart()
-            msg["From"] = self.smtp_user
+            msg["From"] = self.from_email
             msg["To"] = self.kindle_email
             msg["Subject"] = subject or "Story Delivery"
 
@@ -147,6 +150,7 @@ class KindleSender:
 
         Required env vars:
             KINDLE_EMAIL
+            FROM_EMAIL
             SMTP_HOST
             SMTP_PORT
             SMTP_USER
@@ -156,6 +160,7 @@ class KindleSender:
         test_mode = os.environ.get("TEST_MODE", "false").lower() == "true"
         return cls(
             kindle_email=os.environ["KINDLE_EMAIL"],
+            from_email=os.environ["FROM_EMAIL"],
             smtp_host=os.environ["SMTP_HOST"],
             smtp_port=int(os.environ["SMTP_PORT"]),
             smtp_user=os.environ["SMTP_USER"],

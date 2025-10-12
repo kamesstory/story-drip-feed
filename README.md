@@ -70,11 +70,12 @@ USE_LLM_CHUNKER=true         # Fallback LLM chunker
 TARGET_WORDS=5000            # Target words per chunk
 
 # Email Delivery
-KINDLE_EMAIL=you@kindle.com
+KINDLE_EMAIL=you@kindle.com      # Destination Kindle email
+FROM_EMAIL=your-email@gmail.com  # From address for emails
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASSWORD=your-app-password  # Use Gmail App Password
+SMTP_USER=your-email@gmail.com   # SMTP login (usually same as FROM_EMAIL)
+SMTP_PASSWORD=your-app-password  # Gmail App Password
 
 # Testing
 TEST_MODE=true               # Simulate sending (don't actually send)
