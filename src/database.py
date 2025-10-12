@@ -114,6 +114,24 @@ class Database:
                 ON stories(email_id)
             """)
 
+            # Webhook logs table for debugging
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS webhook_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    received_at TIMESTAMP NOT NULL,
+                    raw_payload TEXT NOT NULL,
+                    parsed_emails_count INTEGER,
+                    processing_status TEXT,
+                    error_message TEXT,
+                    story_ids TEXT
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_webhook_logs_received_at
+                ON webhook_logs(received_at DESC)
+            """)
+
     def create_story(self, email_id: str, title: Optional[str] = None,
                     author: Optional[str] = None,
                     content_path: Optional[str] = None,
@@ -352,3 +370,35 @@ class Database:
                 WHERE id = ?
             """, (chunk_id,))
             return cursor.rowcount > 0
+
+    # Webhook logging methods
+    def log_webhook(self, raw_payload: str, parsed_emails_count: int = 0,
+                   processing_status: str = "received", error_message: Optional[str] = None,
+                   story_ids: Optional[List[int]] = None) -> int:
+        """Log a webhook payload for debugging."""
+        with self.get_connection() as conn:
+            story_ids_str = ",".join(map(str, story_ids)) if story_ids else None
+            cursor = conn.execute("""
+                INSERT INTO webhook_logs (received_at, raw_payload, parsed_emails_count, processing_status, error_message, story_ids)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (datetime.utcnow(), raw_payload, parsed_emails_count, processing_status, error_message, story_ids_str))
+            return cursor.lastrowid
+
+    def get_webhook_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get recent webhook logs."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT * FROM webhook_logs
+                ORDER BY received_at DESC
+                LIMIT ?
+            """, (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_webhook_log_by_id(self, log_id: int) -> Optional[Dict[str, Any]]:
+        """Get a specific webhook log by ID."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT * FROM webhook_logs WHERE id = ?
+            """, (log_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None

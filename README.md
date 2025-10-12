@@ -167,17 +167,42 @@ sqlite3 ./local.db "SELECT * FROM stories"
 
 ## Debugging
 
-```bash
-# Check logs
-poetry run modal logs nighttime-story-prep-dev.process_story
+### View Logs
 
+```bash
+# Check function logs
+poetry run modal logs nighttime-story-prep-dev.process_story
+poetry run modal logs nighttime-story-prep-dev.webhook
+
+# View webhook logs (stored in database)
+poetry run modal run scripts/view_webhook_logs.py::list_webhooks_dev
+poetry run modal run scripts/view_webhook_logs.py::view_latest
+poetry run modal run scripts/view_webhook_logs.py::view_webhook_dev --log-id 1
+```
+
+### Inspect Database
+
+```bash
 # Download database for inspection
 poetry run modal volume get story-data-dev stories-dev.db ./dev.db
 sqlite3 ./dev.db
 
+# Query webhook logs
+sqlite3 ./dev.db "SELECT id, received_at, processing_status, parsed_emails_count FROM webhook_logs ORDER BY received_at DESC LIMIT 10"
+
+# Query stories with errors
+sqlite3 ./dev.db "SELECT id, title, status, error_message FROM stories WHERE status='failed'"
+```
+
+### File System
+
+```bash
 # List volume contents
 poetry run modal volume ls story-data-dev /data/raw
 poetry run modal volume ls story-data-dev /data/chunks
+
+# Download raw email
+poetry run modal volume get story-data-dev /data/raw/story_000001/original_email.txt ./email.txt
 
 # Interactive shell with volume mounted
 poetry run modal shell main.py::process_story

@@ -73,11 +73,24 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
     storage = FileStorage("/data")
     email_id = email_data.get("message-id", email_data.get("Message-ID", "unknown"))
 
+    print("=" * 80)
+    print("🔄 PROCESSING STORY")
+    print("=" * 80)
+    print(f"Email ID: {email_id}")
+    print(f"Subject: {email_data.get('subject', 'N/A')}")
+    print(f"From: {email_data.get('from', 'N/A')}")
+    print(f"Text content length: {len(email_data.get('text', ''))} chars")
+    print(f"HTML content length: {len(email_data.get('html', ''))} chars")
+
     story_id = None
     try:
         # Check if we've already processed this email
+        print(f"\n🔍 Checking for duplicate email ID: {email_id}")
         existing = db.get_story_by_email_id(email_id)
         if existing:
+            print(f"⚠️  Duplicate detected: Story ID {existing['id']} already exists")
+            print(f"   Title: {existing['title']}")
+            print(f"   Status: {existing['status']}")
             return {
                 "status": "duplicate",
                 "message": f"Story already processed: {existing['title']}",
@@ -85,27 +98,43 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         # Create placeholder story record to get ID
+        print(f"\n✅ No duplicate found, creating new story record...")
         story_id = db.create_story(email_id, title="Processing...")
+        print(f"   Story ID: {story_id}")
 
         # Update status to processing
         db.update_story_status(story_id, StoryStatus.PROCESSING)
+        print(f"   Status: PROCESSING")
 
         # Extract story content and save to files (agent-first approach)
+        print(f"\n📄 STEP 1: Content Extraction")
+        print("-" * 80)
         result = extract_content(email_data, story_id, storage)
 
         if not result:
             # Extraction failed
-            db.update_story_status(story_id, StoryStatus.FAILED, "Could not extract story content from email")
+            error_msg = "Could not extract story content from email"
+            print(f"❌ Extraction failed: {error_msg}")
+            db.update_story_status(story_id, StoryStatus.FAILED, error_msg)
+            volume.commit()
             return {
                 "status": "error",
-                "message": "Could not extract story content from email",
+                "message": error_msg,
                 "story_id": story_id,
             }
 
         content_path, metadata_path, original_email_path = result
+        print(f"✅ Extraction successful")
+        print(f"   Content path: {content_path}")
+        print(f"   Metadata path: {metadata_path}")
+        print(f"   Original email path: {original_email_path}")
 
         # Read metadata to get title, author, extraction method
         metadata = storage.read_metadata(metadata_path)
+        print(f"\n📋 Story Metadata:")
+        print(f"   Title: {metadata.get('title')}")
+        print(f"   Author: {metadata.get('author')}")
+        print(f"   Extraction method: {metadata.get('extraction_method')}")
 
         # Update story record with file paths and metadata
         db.update_story_paths(
@@ -121,6 +150,8 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         # Chunk the story - use Agent chunker by default with fallback to SimpleChunker
+        print(f"\n✂️  STEP 2: Chunking Story")
+        print("-" * 80)
         use_agent = os.environ.get("USE_AGENT_CHUNKER", "true").lower() == "true"
         target_words = int(os.environ.get("TARGET_WORDS", "8000"))
 
@@ -133,11 +164,14 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
 
         # Chunk from file and save chunk files
         chunk_manifest_path = chunker.chunk_story_from_file(story_id, content_path, storage)
+        print(f"✅ Chunk manifest created: {chunk_manifest_path}")
 
         # Update story with chunk manifest path
         db.update_story_paths(story_id, chunk_manifest_path=chunk_manifest_path)
 
         # Read chunk manifest and create database records
+        print(f"\n💾 STEP 3: Saving Chunks to Database")
+        print("-" * 80)
         chunk_manifest = storage.read_chunk_manifest(chunk_manifest_path)
         total_words = 0
 
@@ -145,7 +179,7 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
             chunk_path = chunk_info["chunk_path"]
             chunk_text = storage.read_chunk(chunk_path)
 
-            db.create_chunk(
+            chunk_id = db.create_chunk(
                 story_id=story_id,
                 chunk_number=chunk_info["chunk_number"],
                 total_chunks=chunk_manifest["total_chunks"],
@@ -153,10 +187,19 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
                 word_count=chunk_info["word_count"],
             )
             total_words += chunk_info["word_count"]
+            print(f"   ✅ Chunk {chunk_info['chunk_number']}/{chunk_manifest['total_chunks']}: "
+                  f"{chunk_info['word_count']} words (DB ID: {chunk_id})")
 
         db.update_word_count(story_id, total_words)
         db.update_story_status(story_id, StoryStatus.CHUNKED)
         volume.commit()
+
+        print(f"\n✅ PROCESSING COMPLETE")
+        print(f"   Story ID: {story_id}")
+        print(f"   Title: {metadata['title']}")
+        print(f"   Total chunks: {chunk_manifest['total_chunks']}")
+        print(f"   Total words: {total_words}")
+        print("=" * 80)
 
         return {
             "status": "success",
@@ -169,19 +212,25 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         # Log error and update status
         error_msg = f"Processing error: {str(e)}"
-        print(error_msg)
+        print(f"\n❌ PROCESSING FAILED")
+        print(f"   Error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        print("=" * 80)
 
         try:
-            db.update_story_status(story_id, StoryStatus.FAILED, error_msg)
-            db.increment_retry_count(story_id)
-            volume.commit()
+            if story_id:
+                db.update_story_status(story_id, StoryStatus.FAILED, error_msg)
+                db.increment_retry_count(story_id)
+                volume.commit()
+                print(f"   Updated Story ID {story_id} status to FAILED")
         except Exception as db_error:
-            print(f"Failed to update database: {db_error}")
+            print(f"   Failed to update database: {db_error}")
 
         return {
             "status": "error",
             "message": error_msg,
-            "story_id": story_id if 'story_id' in locals() else None,
+            "story_id": story_id if story_id else None,
         }
 
 
@@ -251,30 +300,96 @@ def webhook(data: Dict[str, Any]):
       ]
     }
     """
-    # Parse Brevo webhook format
-    emails = parse_brevo_webhook(data)
+    import json
 
-    if not emails:
+    db = Database(f"/data/{DB_NAME}")
+
+    # Log raw webhook payload
+    print("=" * 80)
+    print("📨 WEBHOOK RECEIVED")
+    print("=" * 80)
+    raw_payload_str = json.dumps(data, indent=2)
+    print(f"Raw payload size: {len(raw_payload_str)} bytes")
+    print(f"Payload preview (first 500 chars):\n{raw_payload_str[:500]}...")
+
+    try:
+        # Parse Brevo webhook format
+        emails = parse_brevo_webhook(data)
+        print(f"\n✅ Parsed {len(emails)} email(s) from webhook")
+
+        if not emails:
+            error_msg = "No emails found in webhook payload"
+            print(f"❌ {error_msg}")
+
+            # Log failed webhook
+            db.log_webhook(
+                raw_payload=raw_payload_str,
+                parsed_emails_count=0,
+                processing_status="error",
+                error_message=error_msg
+            )
+            volume.commit()
+
+            return {
+                "status": "error",
+                "message": error_msg,
+            }
+
+        # Log each parsed email
+        for i, email_data in enumerate(emails, 1):
+            print(f"\n📧 Email {i}/{len(emails)}:")
+            print(f"   Message ID: {email_data.get('message-id')}")
+            print(f"   Subject: {email_data.get('subject')}")
+            print(f"   From: {email_data.get('from')}")
+            print(f"   Text length: {len(email_data.get('text', ''))} chars")
+            print(f"   HTML length: {len(email_data.get('html', ''))} chars")
+
+        # Process each email asynchronously
+        results = []
+        for email_data in emails:
+            result = process_story.spawn(email_data)
+            results.append({
+                "email_id": email_data.get("message-id"),
+                "subject": email_data.get("subject"),
+                "call_id": str(result.object_id),
+            })
+
+        # Log successful webhook
+        db.log_webhook(
+            raw_payload=raw_payload_str,
+            parsed_emails_count=len(emails),
+            processing_status="accepted"
+        )
+        volume.commit()
+
+        print(f"\n✅ Webhook accepted, spawned {len(results)} processing task(s)")
+        print("=" * 80)
+
         return {
-            "status": "error",
-            "message": "No emails found in webhook payload",
+            "status": "accepted",
+            "message": f"Processing {len(emails)} email(s)",
+            "emails": results,
         }
 
-    # Process each email asynchronously
-    results = []
-    for email_data in emails:
-        result = process_story.spawn(email_data)
-        results.append({
-            "email_id": email_data.get("message-id"),
-            "subject": email_data.get("subject"),
-            "call_id": str(result.object_id),
-        })
+    except Exception as e:
+        error_msg = f"Webhook processing error: {str(e)}"
+        print(f"\n❌ {error_msg}")
+        import traceback
+        traceback.print_exc()
 
-    return {
-        "status": "accepted",
-        "message": f"Processing {len(emails)} email(s)",
-        "emails": results,
-    }
+        # Log failed webhook
+        db.log_webhook(
+            raw_payload=raw_payload_str,
+            parsed_emails_count=0,
+            processing_status="error",
+            error_message=error_msg
+        )
+        volume.commit()
+
+        return {
+            "status": "error",
+            "message": error_msg,
+        }
 
 
 @app.function(

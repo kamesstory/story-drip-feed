@@ -199,21 +199,37 @@ def extract_content(email_data: Dict[str, Any], story_id: int,
     # Agent extraction enabled by default
     use_agent = os.environ.get("USE_AGENT_EXTRACTION", "true").lower() == "true"
 
+    print(f"🔍 Content Extraction Configuration:")
+    print(f"   USE_AGENT_EXTRACTION: {use_agent}")
+    print(f"   Email has text: {len(email_data.get('text', '')) > 0} ({len(email_data.get('text', ''))} chars)")
+    print(f"   Email has HTML: {len(email_data.get('html', '')) > 0} ({len(email_data.get('html', ''))} chars)")
+
     if use_agent:
-        print("Attempting agent-based content extraction...")
+        print("\n🤖 Attempting agent-based content extraction...")
         try:
             import anyio
             result = anyio.run(extract_content_with_agent, email_data, story_id, storage)
             if result:
                 print(f"✅ Agent extraction successful")
                 return result
+            else:
+                print(f"⚠️  Agent extraction returned None, falling back...")
         except Exception as e:
-            print(f"Agent extraction failed: {e}")
+            print(f"❌ Agent extraction failed with error: {e}")
+            import traceback
+            traceback.print_exc()
 
     # Fall back to traditional parser
-    print("Using traditional EmailParser strategies...")
+    print("\n📋 Using traditional EmailParser strategies...")
     parser = EmailParser()
     result = parser.parse_email(email_data)
+
+    if result:
+        print(f"✅ Traditional parser extracted content")
+        print(f"   Strategy used: {result.get('source_type', 'unknown')}")
+        print(f"   Content length: {len(result.get('text', ''))} chars")
+    else:
+        print(f"❌ Traditional parser failed to extract content")
 
     if result:
         # Save original email
