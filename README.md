@@ -185,13 +185,31 @@ poetry run modal shell main.py::process_story
 
 ## Production Setup
 
-After deploying, configure your email service to forward Patreon emails to:
+### Brevo (Sendinblue) Inbound Email Setup
 
-```
-https://your-username--nighttime-story-prep-webhook.modal.run
-```
+1. **Deploy your app:**
+   ```bash
+   modal deploy main.py
+   ```
 
-Production schedules:
+2. **Get your webhook URL:**
+   ```
+   https://your-username--nighttime-story-prep-webhook.modal.run
+   ```
+
+3. **Configure Brevo inbound domain:**
+   - Go to Brevo dashboard → Settings → Inbound Parsing
+   - Add your domain (e.g., `reply.yourdomain.com`)
+   - Point your domain's MX records to Brevo's servers
+   - Set webhook URL to your Modal endpoint
+
+4. **Forward Patreon emails:**
+   - Create email rule in Patreon to forward to `story@reply.yourdomain.com`
+   - Or use Gmail filters to forward to your Brevo inbound address
+
+**Brevo webhook format:** The webhook receives JSON with an `items` array containing parsed emails. Each email has `Subject`, `From`, `RawTextBody`, `RawHtmlBody`, etc.
+
+### Production Schedules
 
 - **8am UTC**: Send next unsent chunk
 - **Every 6 hours**: Retry failed stories (max 3 attempts)

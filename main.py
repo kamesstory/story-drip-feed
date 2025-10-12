@@ -185,6 +185,44 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+def parse_brevo_webhook(data: Dict[str, Any]) -> list[Dict[str, Any]]:
+    """
+    Parse Brevo inbound webhook payload into internal format.
+
+    Brevo sends webhooks with an 'items' array containing email objects.
+    Each email object has fields like Subject, From, Date, RawHtmlBody, RawTextBody, etc.
+
+    Args:
+        data: Raw Brevo webhook payload with 'items' array
+
+    Returns:
+        List of email data dicts in internal format
+    """
+    emails = []
+
+    # Brevo sends an 'items' array
+    items = data.get("items", [])
+
+    for item in items:
+        # Extract fields from Brevo format
+        # Brevo uses capitalized field names
+        email_data = {
+            "message-id": item.get("Uuid") or item.get("MessageId") or str(uuid.uuid4()),
+            "subject": item.get("Subject", "No Subject"),
+            "from": item.get("From", {}).get("Address", "unknown@unknown.com"),
+            "text": item.get("RawTextBody", ""),
+            "html": item.get("RawHtmlBody", ""),
+            "date": item.get("Date", ""),
+        }
+
+        # Also check for "To" address if needed for routing
+        # to_addresses = item.get("To", [])
+
+        emails.append(email_data)
+
+    return emails
+
+
 @app.function(
     image=image,
     volumes={"/data": volume},
@@ -193,16 +231,49 @@ def process_story(email_data: Dict[str, Any]) -> Dict[str, Any]:
 @modal.fastapi_endpoint(method="POST")
 def webhook(data: Dict[str, Any]):
     """
-    Webhook endpoint for receiving parsed emails.
+    Webhook endpoint for receiving parsed emails from Brevo.
 
-    Accepts POST requests with email data and triggers processing.
+    Brevo sends inbound emails as JSON with an 'items' array.
+    Each email in the array is parsed and processed asynchronously.
+
+    Example Brevo payload:
+    {
+      "items": [
+        {
+          "Uuid": "unique-id",
+          "MessageId": "<message-id@email.com>",
+          "Subject": "Story Title",
+          "From": {"Address": "author@patreon.com", "Name": "Author Name"},
+          "Date": "2024-01-01T12:00:00Z",
+          "RawTextBody": "Story content...",
+          "RawHtmlBody": "<html>Story content...</html>"
+        }
+      ]
+    }
     """
-    # Spawn async processing
-    process_story.spawn(data)
+    # Parse Brevo webhook format
+    emails = parse_brevo_webhook(data)
+
+    if not emails:
+        return {
+            "status": "error",
+            "message": "No emails found in webhook payload",
+        }
+
+    # Process each email asynchronously
+    results = []
+    for email_data in emails:
+        result = process_story.spawn(email_data)
+        results.append({
+            "email_id": email_data.get("message-id"),
+            "subject": email_data.get("subject"),
+            "call_id": str(result.object_id),
+        })
 
     return {
         "status": "accepted",
-        "message": "Story processing started",
+        "message": f"Processing {len(emails)} email(s)",
+        "emails": results,
     }
 
 
