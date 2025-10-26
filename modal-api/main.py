@@ -3,11 +3,14 @@ Modal API for Story Processing
 
 Stateless HTTP API service for content extraction and story chunking.
 Uses Supabase Storage for all file operations.
+
+Note: Imports are done inside functions to avoid local dependency issues
+when Modal parses this file. This is the standard Modal pattern.
 """
 
 import modal
 import os
-from typing import Dict, Any, Optional
+import traceback
 
 # Environment detection
 IS_DEV = os.environ.get("MODAL_ENVIRONMENT", "dev") != "prod"
@@ -40,33 +43,6 @@ image = (
 )
 
 
-def verify_api_key(authorization: Optional[str] = None) -> bool:
-    """
-    Verify API key from Authorization header.
-
-    Args:
-        authorization: Authorization header value (should be "Bearer <key>")
-
-    Returns:
-        True if valid, False otherwise
-    """
-    if not authorization:
-        return False
-
-    expected_key = os.environ.get("MODAL_API_KEY")
-    if not expected_key:
-        print("⚠️  Warning: MODAL_API_KEY not set in environment")
-        return True  # Allow requests if no key is configured
-
-    # Extract bearer token
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        return False
-
-    token = parts[1]
-    return token == expected_key
-
-
 @app.function(
     image=image,
     secrets=[
@@ -78,12 +54,8 @@ def verify_api_key(authorization: Optional[str] = None) -> bool:
 @modal.fastapi_endpoint(method="POST")
 async def extract_content_endpoint(email_data: dict, storage_id: str):
     """Extract content from email data and store in Supabase."""
-    from fastapi import HTTPException
-    from src.content_extraction_agent import extract_content_async
     from src.supabase_storage import SupabaseStorage
-    
-    # Note: FastAPI will inject the Authorization header if we use Header dependency
-    # For now, we'll handle auth in the function body
+    from src.content_extraction_agent import extract_content_async
     
     print(f"\n{'='*80}")
     print(f"📥 EXTRACT CONTENT REQUEST")
@@ -93,10 +65,7 @@ async def extract_content_endpoint(email_data: dict, storage_id: str):
     print(f"From: {email_data.get('from', 'N/A')}")
 
     try:
-        # Initialize Supabase Storage
         storage = SupabaseStorage()
-
-        # Extract content
         result = await extract_content_async(email_data, storage_id, storage)
 
         print(f"\n✅ Content extraction successful")
@@ -113,10 +82,13 @@ async def extract_content_endpoint(email_data: dict, storage_id: str):
 
     except Exception as e:
         print(f"\n❌ Content extraction error: {e}")
-        import traceback
         traceback.print_exc()
         print(f"{'='*80}\n")
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        return {
+            "error": "Internal Server Error",
+            "message": str(e)
+        }
 
 
 @app.function(
@@ -130,9 +102,8 @@ async def extract_content_endpoint(email_data: dict, storage_id: str):
 @modal.fastapi_endpoint(method="POST")
 async def chunk_story_endpoint(content_url: str, storage_id: str, target_words: int = 5000):
     """Chunk story content from Supabase Storage."""
-    from fastapi import HTTPException
-    from src.chunker import chunk_story
     from src.supabase_storage import SupabaseStorage
+    from src.chunker import chunk_story
 
     print(f"\n{'='*80}")
     print(f"✂️  CHUNK STORY REQUEST")
@@ -142,10 +113,8 @@ async def chunk_story_endpoint(content_url: str, storage_id: str, target_words: 
     print(f"Target words: {target_words}")
 
     try:
-        # Initialize Supabase Storage
         storage = SupabaseStorage()
-
-        # Chunk the story (always uses AgentChunker)
+        
         result = await chunk_story(
             content_url=content_url,
             storage_id=storage_id,
@@ -166,10 +135,13 @@ async def chunk_story_endpoint(content_url: str, storage_id: str, target_words: 
 
     except Exception as e:
         print(f"\n❌ Chunking error: {e}")
-        import traceback
         traceback.print_exc()
         print(f"{'='*80}\n")
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        return {
+            "error": "Internal Server Error",
+            "message": str(e)
+        }
 
 
 @app.function(
@@ -224,11 +196,7 @@ def health_endpoint():
 # Local testing entrypoint
 @app.local_entrypoint()
 def main():
-    """
-    Local testing entrypoint.
-
-    Run with: modal run main.py
-    """
+    """Local testing entrypoint."""
     print("Modal API is ready to deploy!")
     print(f"App name: {APP_NAME}")
     print("\nTo deploy:")
