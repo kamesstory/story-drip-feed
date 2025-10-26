@@ -35,6 +35,9 @@ EOF
 
 # Create a test script for storage operations
 cat > test-storage-script.mjs << 'EOF'
+import { config } from 'dotenv';
+config({ path: '.env.local' });
+
 import { 
   uploadEpub, 
   downloadEpub, 
@@ -98,15 +101,12 @@ runTests().catch((error) => {
 EOF
 
 # Run the test script
-node --loader ts-node/esm test-storage-script.mjs 2>&1 || {
-    # If ts-node doesn't work, try with tsx
-    npx tsx test-storage-script.mjs 2>&1 || {
-        echo -e "${RED}❌ Failed to run test script${NC}"
-        echo "Make sure you have TypeScript dependencies installed."
-        rm -f test-storage-script.mjs
-        rm -rf test-epub
-        exit 1
-    }
+npx tsx test-storage-script.mjs 2>&1 || {
+    echo -e "${RED}❌ Failed to run test script${NC}"
+    echo "Make sure you have TypeScript dependencies installed."
+    rm -f test-storage-script.mjs
+    rm -rf test-epub
+    exit 1
 }
 
 # Clean up

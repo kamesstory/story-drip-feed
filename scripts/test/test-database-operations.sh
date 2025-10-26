@@ -28,6 +28,9 @@ echo ""
 
 # Create a test script that uses the database utilities
 cat > test-db-script.mjs << 'EOF'
+import { config } from 'dotenv';
+config({ path: '.env.local' });
+
 import { 
   createStory, 
   getStoryById, 
@@ -137,14 +140,11 @@ runTests().catch((error) => {
 EOF
 
 # Run the test script
-node --loader ts-node/esm test-db-script.mjs 2>&1 || {
-    # If ts-node doesn't work, try with tsx
-    npx tsx test-db-script.mjs 2>&1 || {
-        echo -e "${RED}❌ Failed to run test script${NC}"
-        echo "Make sure you have TypeScript dependencies installed."
-        rm -f test-db-script.mjs
-        exit 1
-    }
+npx tsx test-db-script.mjs 2>&1 || {
+    echo -e "${RED}❌ Failed to run test script${NC}"
+    echo "Make sure you have TypeScript dependencies installed."
+    rm -f test-db-script.mjs
+    exit 1
 }
 
 # Clean up
