@@ -108,7 +108,7 @@ async def _extract_story_with_agent(raw_content: str) -> str:
     extraction_prompt = f"""Extract ONLY the story content from this text.
 
 Raw content:
-{raw_content[:10000]}
+{raw_content}
 
 CRITICAL INSTRUCTIONS - REMOVE ALL NON-STORY CONTENT:
 
