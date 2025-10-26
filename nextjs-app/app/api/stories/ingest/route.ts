@@ -134,7 +134,7 @@ async function processStory(
       );
 
       // Download chunk text from storage
-      const chunkText = await downloadText("epubs", chunkInfo.url);
+      const chunkText = await downloadText("story-storage", chunkInfo.url);
 
       // Generate EPUB
       const epubBuffer = await generateEPUB({
