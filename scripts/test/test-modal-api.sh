@@ -1,134 +1,112 @@
 #!/bin/bash
-
-# Test script for Modal API endpoints
+#
+# Test Modal API endpoints
 # Tests health, extract-content, and chunk-story endpoints
+#
+# Usage:
+#   ./test-modal-api.sh
+#
 
 set -e
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/http.sh"
 
-echo "=================================================="
-echo "🧪 Testing Modal API Endpoints"
-echo "=================================================="
-echo ""
+section "Testing Modal API Endpoints"
 
 # Check for required environment variables
-if [ -z "$MODAL_API_URL" ]; then
-    echo -e "${RED}❌ Error: MODAL_API_URL not set${NC}"
-    echo "Please set MODAL_API_URL to your Modal API base URL"
-    echo "Example: export MODAL_API_URL=https://your-app-id.modal.run"
+if ! check_required_env MODAL_API_URL MODAL_API_KEY; then
+    info "Please set MODAL_API_URL and MODAL_API_KEY"
+    info "Example: export MODAL_API_URL=https://your-app-id.modal.run"
     exit 1
 fi
 
-if [ -z "$MODAL_API_KEY" ]; then
-    echo -e "${RED}❌ Error: MODAL_API_KEY not set${NC}"
-    echo "Please set MODAL_API_KEY to your API key"
-    exit 1
-fi
-
-echo "📍 API URL: $MODAL_API_URL"
+log "API URL: $MODAL_API_URL"
 echo ""
 
 # Test 1: Health Check
-echo "=================================================="
-echo "Test 1: Health Check"
-echo "=================================================="
-HEALTH_URL="${MODAL_API_URL}/health"
-echo "GET $HEALTH_URL"
-echo ""
+subsection "Test 1: Health Check"
 
-HEALTH_RESPONSE=$(curl -s "$HEALTH_URL")
-echo "$HEALTH_RESPONSE" | jq '.'
-
-STATUS=$(echo "$HEALTH_RESPONSE" | jq -r '.status')
-if [ "$STATUS" == "healthy" ] || [ "$STATUS" == "degraded" ]; then
-    echo -e "${GREEN}✅ Health check passed${NC}"
+if check_endpoint_health "$MODAL_API_URL/health" "Modal API"; then
+    success "Health check passed"
 else
-    echo -e "${RED}❌ Health check failed${NC}"
+    error "Health check failed"
     exit 1
 fi
 echo ""
 
 # Test 2: Extract Content (with authentication)
-echo "=================================================="
-echo "Test 2: Extract Content"
-echo "=================================================="
-EXTRACT_URL="${MODAL_API_URL}/extract-content"
-STORAGE_ID="test-$(date +%s)"
+subsection "Test 2: Extract Content"
 
-echo "POST $EXTRACT_URL"
-echo "Storage ID: $STORAGE_ID"
-echo ""
+STORAGE_ID="test-$(timestamp)"
+log "Storage ID: $STORAGE_ID"
 
 # Sample email data
-EMAIL_DATA='{
-  "email_data": {
-    "text": "Chapter 27\n\nMaryam was not having a good time.\n\nThe morning had started poorly, and things had only gotten worse from there. She had overslept, missed breakfast, and now found herself late for the most important meeting of her life.\n\nAs she hurried through the crowded streets, dodging vendors and pedestrians, she couldn'\''t shake the feeling that someone was following her. Every time she glanced over her shoulder, though, there was nothing but the usual chaos of the marketplace.\n\n\"You'\''re being paranoid,\" she muttered to herself, quickening her pace.\n\nBut paranoia, she would soon learn, wasn'\''t always a bad thing.",
-    "html": "",
-    "subject": "Test Story - Chapter 27",
-    "from": "Test Author <test@example.com>"
+EMAIL_DATA="{
+  \"email_data\": {
+    \"email_id\": \"$STORAGE_ID\",
+    \"text\": \"Chapter 27\n\nMaryam was not having a good time.\n\nThe morning had started poorly, and things had only gotten worse from there. She had overslept, missed breakfast, and now found herself late for the most important meeting of her life.\n\nAs she hurried through the crowded streets, dodging vendors and pedestrians, she couldn't shake the feeling that someone was following her. Every time she glanced over her shoulder, though, there was nothing but the usual chaos of the marketplace.\n\n'You're being paranoid,' she muttered to herself, quickening her pace.\n\nBut paranoia, she would soon learn, wasn't always a bad thing.\",
+    \"html\": \"\",
+    \"subject\": \"Test Story - Chapter 27\",
+    \"from\": \"Test Author <test@example.com>\"
   },
-  "storage_id": "'$STORAGE_ID'"
-}'
+  \"storage_id\": \"$STORAGE_ID\"
+}"
 
-EXTRACT_RESPONSE=$(curl -s -X POST "$EXTRACT_URL" \
-  -H "Authorization: Bearer $MODAL_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "$EMAIL_DATA")
+response=$(http_post_auth "$MODAL_API_URL/extract-content" "$EMAIL_DATA" "$MODAL_API_KEY" "Extract Content" 2)
+http_code=$(echo "$response" | head -n1)
+body=$(echo "$response" | tail -n+2)
 
-echo "$EXTRACT_RESPONSE" | jq '.'
-
-EXTRACT_STATUS=$(echo "$EXTRACT_RESPONSE" | jq -r '.status')
-if [ "$EXTRACT_STATUS" == "success" ]; then
-    echo -e "${GREEN}✅ Content extraction passed${NC}"
-    CONTENT_URL=$(echo "$EXTRACT_RESPONSE" | jq -r '.content_url')
-    WORD_COUNT=$(echo "$EXTRACT_RESPONSE" | jq -r '.metadata.word_count')
-    echo "Content URL: $CONTENT_URL"
-    echo "Word count: $WORD_COUNT"
+if [ "$http_code" = "200" ]; then
+    EXTRACT_STATUS=$(parse_json_field "$body" "status")
+    if [ "$EXTRACT_STATUS" = "success" ]; then
+        success "Content extraction passed"
+        CONTENT_URL=$(parse_json_field "$body" "content_url")
+        WORD_COUNT=$(parse_json_nested "$body" "metadata.word_count")
+        info "Content URL: $CONTENT_URL"
+        info "Word count: $WORD_COUNT"
+    else
+        error "Content extraction failed"
+        exit 1
+    fi
 else
-    echo -e "${RED}❌ Content extraction failed${NC}"
+    error "Content extraction failed (HTTP $http_code)"
     exit 1
 fi
 echo ""
 
 # Test 3: Chunk Story
-echo "=================================================="
-echo "Test 3: Chunk Story"
-echo "=================================================="
-CHUNK_URL="${MODAL_API_URL}/chunk-story"
+subsection "Test 3: Chunk Story"
 
-echo "POST $CHUNK_URL"
-echo "Using content from: $CONTENT_URL"
-echo ""
+log "Using content from: $CONTENT_URL"
 
-CHUNK_DATA='{
-  "content_url": "'$CONTENT_URL'",
-  "storage_id": "'$STORAGE_ID'",
-  "target_words": 5000
-}'
+CHUNK_DATA="{
+  \"content_url\": \"$CONTENT_URL\",
+  \"storage_id\": \"$STORAGE_ID\",
+  \"target_words\": 5000
+}"
 
-CHUNK_RESPONSE=$(curl -s -X POST "$CHUNK_URL" \
-  -H "Authorization: Bearer $MODAL_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "$CHUNK_DATA")
+response=$(http_post_auth "$MODAL_API_URL/chunk-story" "$CHUNK_DATA" "$MODAL_API_KEY" "Chunk Story" 2)
+http_code=$(echo "$response" | head -n1)
+body=$(echo "$response" | tail -n+2)
 
-echo "$CHUNK_RESPONSE" | jq '.'
-
-CHUNK_STATUS=$(echo "$CHUNK_RESPONSE" | jq -r '.status')
-if [ "$CHUNK_STATUS" == "success" ]; then
-    echo -e "${GREEN}✅ Chunking passed${NC}"
-    TOTAL_CHUNKS=$(echo "$CHUNK_RESPONSE" | jq -r '.total_chunks')
-    TOTAL_WORDS=$(echo "$CHUNK_RESPONSE" | jq -r '.total_words')
-    STRATEGY=$(echo "$CHUNK_RESPONSE" | jq -r '.chunking_strategy')
-    echo "Total chunks: $TOTAL_CHUNKS"
-    echo "Total words: $TOTAL_WORDS"
-    echo "Strategy: $STRATEGY"
+if [ "$http_code" = "200" ]; then
+    CHUNK_STATUS=$(parse_json_field "$body" "status")
+    if [ "$CHUNK_STATUS" = "success" ]; then
+        success "Chunking passed"
+        TOTAL_CHUNKS=$(parse_json_field "$body" "total_chunks")
+        TOTAL_WORDS=$(parse_json_field "$body" "total_words")
+        STRATEGY=$(parse_json_field "$body" "chunking_strategy")
+        info "Total chunks: $TOTAL_CHUNKS"
+        info "Total words: $TOTAL_WORDS"
+        info "Strategy: $STRATEGY"
+    else
+        error "Chunking failed"
+        exit 1
+    fi
 else
-    echo -e "${RED}❌ Chunking failed${NC}"
+    error "Chunking failed (HTTP $http_code)"
     exit 1
 fi
 echo ""
@@ -184,20 +162,20 @@ fi
 echo ""
 
 # Summary
-echo "=================================================="
-echo "✅ All Modal API tests completed successfully!"
-echo "=================================================="
-echo ""
-echo "Endpoints tested:"
+section "✅ All Modal API Tests Passed"
+
+info "Endpoints tested:"
 echo "  ✅ GET /health"
 echo "  ✅ POST /extract-content (valid request)"
 echo "  ✅ POST /chunk-story (valid request)"
 echo "  ✅ POST /extract-content (invalid auth)"
 echo "  ✅ POST /extract-content (missing params)"
 echo ""
-echo "Test storage ID: $STORAGE_ID"
+
+info "Test storage ID: $STORAGE_ID"
 echo ""
-echo "To verify files in Supabase Storage:"
+
+info "To verify files in Supabase Storage:"
 echo "  - story-content/$STORAGE_ID/content.txt"
 echo "  - story-chunks/$STORAGE_ID/chunk_001.txt"
 echo "  - story-metadata/$STORAGE_ID/metadata.json"

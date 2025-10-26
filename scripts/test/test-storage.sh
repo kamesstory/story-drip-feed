@@ -1,30 +1,35 @@
 #!/bin/bash
+#
+# Test storage operations
+#
+# Usage:
+#   ./test-storage.sh
+#
+
 set -e
 
-echo "=== Storage Operations Test ==="
-echo ""
-echo "Prerequisites:"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+
+# Change to the nextjs-app directory
+NEXTJS_DIR="$SCRIPT_DIR/../../nextjs-app"
+cd "$NEXTJS_DIR"
+
+section "Storage Operations Test"
+
+info "Prerequisites:"
 echo "  - Supabase must be running (supabase start)"
 echo "  - NextJS dev server must be running (npm run dev)"
 echo "  - Storage bucket 'epubs' must exist in Supabase"
 echo ""
 
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-# Change to the nextjs-app directory
-cd "$(dirname "$0")/../../nextjs-app"
-
 # Check if node_modules exists
 if [ ! -d "node_modules" ]; then
-    echo -e "${RED}❌ node_modules not found. Run 'npm install' first.${NC}"
+    error "node_modules not found. Run 'npm install' first."
     exit 1
 fi
 
-echo -e "${YELLOW}Running storage tests...${NC}"
+log "Running storage tests..."
 echo ""
 
 # Create a test EPUB file (minimal valid EPUB)
@@ -101,18 +106,20 @@ runTests().catch((error) => {
 EOF
 
 # Run the test script
-npx tsx test-storage-script.mjs 2>&1 || {
-    echo -e "${RED}❌ Failed to run test script${NC}"
-    echo "Make sure you have TypeScript dependencies installed."
+if npx tsx test-storage-script.mjs 2>&1; then
+    success "Storage operations test completed"
+else
+    error "Failed to run test script"
+    info "Make sure you have TypeScript dependencies installed."
     rm -f test-storage-script.mjs
     rm -rf test-epub
     exit 1
-}
+fi
 
 # Clean up
 rm -f test-storage-script.mjs
 rm -rf test-epub
 
 echo ""
-echo -e "${GREEN}✅ All storage operation tests completed successfully!${NC}"
+section "✅ All Storage Tests Passed"
 

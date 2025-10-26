@@ -1,29 +1,35 @@
 #!/bin/bash
+#
+# Test database operations
+#
+# Usage:
+#   ./test-database.sh
+#
+
 set -e
 
-echo "=== Database Operations Test ==="
-echo ""
-echo "Prerequisites:"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/db.sh"
+
+# Change to the nextjs-app directory
+NEXTJS_DIR="$SCRIPT_DIR/../../nextjs-app"
+cd "$NEXTJS_DIR"
+
+section "Database Operations Test"
+
+info "Prerequisites:"
 echo "  - Supabase must be running (supabase start)"
 echo "  - NextJS dev server must be running (npm run dev)"
 echo ""
 
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-# Change to the nextjs-app directory
-cd "$(dirname "$0")/../../nextjs-app"
-
 # Check if node_modules exists
 if [ ! -d "node_modules" ]; then
-    echo -e "${RED}❌ node_modules not found. Run 'npm install' first.${NC}"
+    error "node_modules not found. Run 'npm install' first."
     exit 1
 fi
 
-echo -e "${YELLOW}Running database tests...${NC}"
+log "Running database tests..."
 echo ""
 
 # Create a test script that uses the database utilities
@@ -140,16 +146,18 @@ runTests().catch((error) => {
 EOF
 
 # Run the test script
-npx tsx test-db-script.mjs 2>&1 || {
-    echo -e "${RED}❌ Failed to run test script${NC}"
-    echo "Make sure you have TypeScript dependencies installed."
+if npx tsx test-db-script.mjs 2>&1; then
+    success "Database operations test completed"
+else
+    error "Failed to run test script"
+    info "Make sure you have TypeScript dependencies installed."
     rm -f test-db-script.mjs
     exit 1
-}
+fi
 
 # Clean up
 rm -f test-db-script.mjs
 
 echo ""
-echo -e "${GREEN}✅ All database operation tests completed successfully!${NC}"
+section "✅ All Database Tests Passed"
 

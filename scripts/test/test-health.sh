@@ -1,43 +1,54 @@
 #!/bin/bash
+#
+# Test health endpoints for all services
+#
+# Usage:
+#   ./test-health.sh
+#
+
 set -e
 
-echo "=== Health Endpoint Test ==="
-echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/http.sh"
 
-# Colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+# Configuration
+NEXTJS_URL="${NEXT_PUBLIC_BASE_URL:-http://localhost:3000}"
+MODAL_API_URL="${MODAL_API_URL:-}"
 
-# Check if NextJS is running
-if ! curl -s http://localhost:3000 > /dev/null 2>&1; then
-    echo -e "${RED}❌ NextJS dev server is not running on port 3000${NC}"
-    echo "Please start it with: cd nextjs-app && npm run dev"
+section "Health Check Tests"
+
+# Test 1: NextJS Health
+subsection "Testing NextJS Health"
+
+if ! is_service_running "$NEXTJS_URL"; then
+    error "NextJS is not running at $NEXTJS_URL"
+    info "Start it with: cd nextjs-app && npm run dev"
     exit 1
 fi
 
-echo "Testing health endpoint..."
-RESPONSE=$(curl -s http://localhost:3000/api/health)
-
-# Check if we got a response
-if [ -z "$RESPONSE" ]; then
-    echo -e "${RED}❌ No response from health endpoint${NC}"
-    exit 1
-fi
-
-# Parse response using grep and cut (works without jq)
-STATUS=$(echo $RESPONSE | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
-
-if [ "$STATUS" = "ok" ]; then
-    echo -e "${GREEN}✅ Health check passed${NC}"
-    echo ""
-    echo "Response:"
-    echo $RESPONSE | python3 -m json.tool 2>/dev/null || echo $RESPONSE
-    echo ""
-    exit 0
+if check_endpoint_health "$NEXTJS_URL/api/health" "NextJS"; then
+    success "NextJS is healthy"
 else
-    echo -e "${RED}❌ Health check failed${NC}"
-    echo "Response: $RESPONSE"
+    error "NextJS health check failed"
     exit 1
 fi
+
+# Test 2: Modal API Health (if configured)
+if [ -n "$MODAL_API_URL" ]; then
+    echo ""
+    subsection "Testing Modal API Health"
+    
+    if check_endpoint_health "$MODAL_API_URL/health" "Modal API"; then
+        success "Modal API is healthy"
+    else
+        warning "Modal API health check failed (this is optional)"
+    fi
+else
+    echo ""
+    info "MODAL_API_URL not set, skipping Modal API health check"
+fi
+
+echo ""
+section "✅ All Health Checks Passed"
 
