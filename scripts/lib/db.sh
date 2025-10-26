@@ -2,138 +2,257 @@
 #
 # Database utilities for test scripts
 # Provides: Supabase query helpers, verification functions
+# Uses Supabase REST API (no DATABASE_URL needed!)
 #
 
 # Source common utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
-# Check if DATABASE_URL is set
+# Check if Supabase credentials are set
 check_database_connection() {
-  if [ -z "$DATABASE_URL" ]; then
-    error "DATABASE_URL environment variable is not set"
-    info "This should be your Supabase PostgreSQL connection string"
+  if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+    error "Supabase credentials not set"
+    info "Required: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
+    info "These should be in your nextjs-app/.env.local file"
     return 1
   fi
   
-  debug "DATABASE_URL is set"
+  debug "Supabase credentials found"
   return 0
 }
 
-# Execute SQL query
+# Query Supabase via REST API
+supabase_query() {
+  local table=$1
+  local query_params=$2
+  
+  if ! check_database_connection; then
+    return 1
+  fi
+  
+  local url="${NEXT_PUBLIC_SUPABASE_URL}/rest/v1/${table}?${query_params}"
+  
+  debug "Querying: $url"
+  
+  curl -s -X GET "$url" \
+    -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+    -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+    -H "Content-Type: application/json"
+}
+
+# For custom SQL queries, we still need DATABASE_URL or psql
+# This is a fallback for complex queries
 query_db() {
   local sql=$1
   
-  if ! check_database_connection; then
+  if [ -n "$DATABASE_URL" ]; then
+    debug "Using DATABASE_URL for query: $sql"
+    psql "$DATABASE_URL" -t -A -c "$sql" 2>&1
+    return $?
+  else
+    warning "DATABASE_URL not set - complex SQL queries not available"
+    warning "Use specific functions like get_story(), list_stories(), etc."
     return 1
   fi
-  
-  debug "Executing SQL: $sql"
-  
-  psql "$DATABASE_URL" -t -A -c "$sql" 2>&1
-  return $?
 }
 
-# Execute SQL query with formatting
+# Execute SQL query with formatting (requires DATABASE_URL)
 query_db_formatted() {
   local sql=$1
   
+  if [ -n "$DATABASE_URL" ]; then
+    debug "Using DATABASE_URL for formatted query: $sql"
+    psql "$DATABASE_URL" -c "$sql" 2>&1
+    return $?
+  else
+    warning "DATABASE_URL not set - formatted queries not available"
+    warning "Set DATABASE_URL for custom SQL queries"
+    return 1
+  fi
+}
+
+# Get story by ID (using Supabase REST API)
+get_story() {
+  local story_id=$1
+  
   if ! check_database_connection; then
     return 1
   fi
   
-  debug "Executing SQL: $sql"
+  local result=$(supabase_query "stories" "id=eq.${story_id}&select=*")
   
-  psql "$DATABASE_URL" -c "$sql" 2>&1
-  return $?
+  if command -v jq &> /dev/null; then
+    echo "$result" | jq -r '.[0] | "ID: \(.id)\nEmail ID: \(.email_id)\nTitle: \(.title)\nAuthor: \(.author // "N/A")\nStatus: \(.status)\nWord Count: \(.word_count // 0)\nReceived: \(.received_at)\nProcessed: \(.processed_at // "N/A")"'
+  else
+    echo "$result"
+  fi
 }
 
-# Get story by ID
-get_story() {
-  local story_id=$1
-  
-  local sql="SELECT id, email_id, title, author, source, status, word_count, extraction_method, received_at, processed_at FROM stories WHERE id = $story_id;"
-  
-  query_db_formatted "$sql"
-}
-
-# Get story status
+# Get story status (using Supabase REST API)
 get_story_status() {
   local story_id=$1
   
-  local sql="SELECT status FROM stories WHERE id = $story_id;"
+  if ! check_database_connection; then
+    return 1
+  fi
   
-  query_db "$sql" | tr -d ' '
+  local result=$(supabase_query "stories" "id=eq.${story_id}&select=status")
+  
+  if command -v jq &> /dev/null; then
+    echo "$result" | jq -r '.[0].status // ""'
+  else
+    echo "$result" | grep -o '"status":"[^"]*"' | cut -d'"' -f4
+  fi
 }
 
-# Get story title
+# Get story title (using Supabase REST API)
 get_story_title() {
   local story_id=$1
   
-  local sql="SELECT title FROM stories WHERE id = $story_id;"
+  if ! check_database_connection; then
+    return 1
+  fi
   
-  query_db "$sql" | tr -d ' '
+  local result=$(supabase_query "stories" "id=eq.${story_id}&select=title")
+  
+  if command -v jq &> /dev/null; then
+    echo "$result" | jq -r '.[0].title // ""'
+  else
+    echo "$result" | grep -o '"title":"[^"]*"' | cut -d'"' -f4
+  fi
 }
 
-# Check if story exists
+# Check if story exists (using Supabase REST API)
 story_exists() {
   local story_id=$1
   
-  local sql="SELECT COUNT(*) FROM stories WHERE id = $story_id;"
-  local count=$(query_db "$sql" | tr -d ' ')
+  if ! check_database_connection; then
+    return 1
+  fi
   
-  [ "$count" -gt 0 ]
+  local result=$(supabase_query "stories" "id=eq.${story_id}&select=id")
+  
+  if command -v jq &> /dev/null; then
+    local count=$(echo "$result" | jq 'length')
+    [ "$count" -gt 0 ]
+  else
+    echo "$result" | grep -q "\"id\":"
+  fi
+  
   return $?
 }
 
-# Get chunks for story
+# Get chunks for story (using Supabase REST API)
 get_story_chunks() {
   local story_id=$1
   
-  local sql="SELECT id, chunk_number, total_chunks, word_count, CASE WHEN sent_to_kindle_at IS NULL THEN 'PENDING' ELSE 'SENT' END as status, sent_to_kindle_at FROM story_chunks WHERE story_id = $story_id ORDER BY chunk_number;"
+  if ! check_database_connection; then
+    return 1
+  fi
   
-  query_db_formatted "$sql"
+  local result=$(supabase_query "story_chunks" "story_id=eq.${story_id}&select=*&order=chunk_number.asc")
+  
+  if command -v jq &> /dev/null; then
+    echo "ID | Chunk | Total | Words | Status | Sent At"
+    echo "---|-------|-------|-------|--------|--------"
+    echo "$result" | jq -r '.[] | "\(.id) | \(.chunk_number)/\(.total_chunks) | \(.total_chunks) | \(.word_count) | \(if .sent_to_kindle_at then "SENT" else "PENDING" end) | \(.sent_to_kindle_at // "N/A")"'
+  else
+    echo "$result"
+  fi
 }
 
-# Count chunks for story
+# Count chunks for story (using Supabase REST API)
 count_story_chunks() {
   local story_id=$1
   
-  local sql="SELECT COUNT(*) FROM story_chunks WHERE story_id = $story_id;"
+  if ! check_database_connection; then
+    return 1
+  fi
   
-  query_db "$sql" | tr -d ' '
+  local result=$(supabase_query "story_chunks" "story_id=eq.${story_id}&select=id")
+  
+  if command -v jq &> /dev/null; then
+    echo "$result" | jq 'length'
+  else
+    echo "$result" | grep -o '"id"' | wc -l | tr -d ' '
+  fi
 }
 
-# Get latest story ID
+# Get latest story ID (using Supabase REST API)
 get_latest_story_id() {
-  local sql="SELECT id FROM stories ORDER BY received_at DESC LIMIT 1;"
+  if ! check_database_connection; then
+    return 1
+  fi
   
-  query_db "$sql" | tr -d ' '
+  local result=$(supabase_query "stories" "select=id&order=received_at.desc&limit=1")
+  
+  if command -v jq &> /dev/null; then
+    echo "$result" | jq -r '.[0].id // ""'
+  else
+    echo "$result" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2
+  fi
 }
 
-# List recent stories
+# List recent stories (using Supabase REST API)
 list_recent_stories() {
   local limit=${1:-10}
   
-  local sql="SELECT id, title, status, word_count, received_at FROM stories ORDER BY received_at DESC LIMIT $limit;"
+  if ! check_database_connection; then
+    return 1
+  fi
   
-  query_db_formatted "$sql"
+  local result=$(supabase_query "stories" "select=id,title,status,word_count,received_at&order=received_at.desc&limit=${limit}")
+  
+  if command -v jq &> /dev/null; then
+    echo "ID | Title | Status | Words | Received"
+    echo "---|-------|--------|-------|----------"
+    echo "$result" | jq -r '.[] | "\(.id) | \(.title) | \(.status) | \(.word_count // 0) | \(.received_at)"'
+  else
+    echo "$result"
+  fi
 }
 
-# List stories with test prefix
+# List stories with test prefix (using Supabase REST API)
 list_test_stories() {
   local limit=${1:-50}
   
-  local sql="SELECT id, email_id, title, status, word_count, received_at FROM stories WHERE email_id LIKE 'test-%' ORDER BY received_at DESC LIMIT $limit;"
+  if ! check_database_connection; then
+    return 1
+  fi
   
-  query_db_formatted "$sql"
+  local result=$(supabase_query "stories" "select=id,email_id,title,status,word_count,received_at&email_id=like.test-*&order=received_at.desc&limit=${limit}")
+  
+  if command -v jq &> /dev/null; then
+    echo "ID | Email ID | Title | Status | Words | Received"
+    echo "---|----------|-------|--------|-------|----------"
+    echo "$result" | jq -r '.[] | "\(.id) | \(.email_id) | \(.title) | \(.status) | \(.word_count // 0) | \(.received_at)"'
+  else
+    echo "$result"
+  fi
 }
 
-# Get next unsent chunk
+# Get next unsent chunk (requires DATABASE_URL for JOIN query)
 get_next_unsent_chunk() {
-  local sql="SELECT sc.id, sc.story_id, s.title, sc.chunk_number, sc.total_chunks FROM story_chunks sc JOIN stories s ON sc.story_id = s.id WHERE sc.sent_to_kindle_at IS NULL AND s.status = 'chunked' ORDER BY sc.created_at ASC, sc.chunk_number ASC LIMIT 1;"
-  
-  query_db_formatted "$sql"
+  if [ -n "$DATABASE_URL" ]; then
+    local sql="SELECT sc.id, sc.story_id, s.title, sc.chunk_number, sc.total_chunks FROM story_chunks sc JOIN stories s ON sc.story_id = s.id WHERE sc.sent_to_kindle_at IS NULL AND s.status = 'chunked' ORDER BY sc.created_at ASC, sc.chunk_number ASC LIMIT 1;"
+    query_db_formatted "$sql"
+  else
+    # Fallback: get unsent chunks without JOIN (simplified)
+    if ! check_database_connection; then
+      return 1
+    fi
+    
+    local result=$(supabase_query "story_chunks" "select=id,story_id,chunk_number,total_chunks&sent_to_kindle_at=is.null&order=created_at.asc&limit=1")
+    
+    if command -v jq &> /dev/null; then
+      echo "$result" | jq -r '.[] | "ID: \(.id) | Story: \(.story_id) | Chunk: \(.chunk_number)/\(.total_chunks)"'
+    else
+      echo "$result"
+    fi
+    
+    warning "Use DATABASE_URL for full details including story title"
+  fi
 }
 
 # Verify story exists
