@@ -8,9 +8,12 @@ Migrate the story processing pipeline from Modal-only to Vercel/NextJS with Moda
 
 **Target Architecture**:
 
-- NextJS/Vercel (main API, database, blob storage, cron)
+- NextJS/Vercel (main API, hosting, cron)
+- Supabase (PostgreSQL database + file storage)
 - Modal (separate Python API service for AI/agent operations only)
 - Brevo (SMTP + email webhooks)
+
+**Key Architectural Principle**: Use blob storage + pass storage pointers/URLs between services instead of passing large text content in API requests/responses. This makes the system more robust and reduces brittleness from handling massive payloads.
 
 ## High-Level Task Breakdown
 
@@ -23,8 +26,8 @@ Migrate the story processing pipeline from Modal-only to Vercel/NextJS with Moda
 - Initialize NextJS 14+ project with TypeScript and App Router
 - Configure Vercel deployment settings
 - Set up environment variables and secrets management
-- Initialize Vercel Postgres database
-- Set up Vercel Blob storage for EPUB files
+- Initialize Supabase (local dev + production)
+- Set up Supabase Storage for EPUB files
 - Create basic project structure (`/app/api`, `/lib`, `/types`)
 
 **Key files to create**:
@@ -41,25 +44,26 @@ Migrate the story processing pipeline from Modal-only to Vercel/NextJS with Moda
 
 ### Task 2: Database Schema & Models
 
-**Goal**: Design and implement PostgreSQL schema for stories, chunks, and logs
+**Goal**: Design and implement PostgreSQL schema for stories and chunks
 
 **Steps**:
 
-- Design schema: `stories`, `chunks`, `delivery_log`, `processing_log`
+- Design schema: `stories`, `story_chunks` (simplified - no logging tables, use Vercel logs instead)
 - Create TypeScript types matching schema
-- Write migration scripts for Vercel Postgres
+- Write migration scripts for Supabase
 - Add indexes for common queries (next unsent chunk, story status)
-- Create database utility functions (CRUD operations)
+- Create database utility functions using Supabase client (CRUD operations)
 
 **Key considerations**:
 
 - Track story source (email, manual API, etc.)
-- Processing status (pending, extracting, chunking, complete, failed)
+- Processing status (pending, processing, chunked, sent, failed)
 - Chunk order and delivery sequence
 - Delivery timestamps and status
-- Error logs with stack traces
+- Error messages stored in story record
+- Logging handled by Vercel (no separate logging tables needed)
 
-**Test script**: `scripts/test/test-database.sh` - test CRUD operations for all tables
+**Test script**: `scripts/test/test-database-operations.sh` - test CRUD operations with actual database queries
 
 ---
 
@@ -79,11 +83,13 @@ Migrate the story processing pipeline from Modal-only to Vercel/NextJS with Moda
 **Endpoints needed**:
 
 - `POST /extract-content`
-  - Input: `{ "content": "...", "url": "...", "password": "..." }`
-  - Output: `{ "content": "...", "metadata": {...} }`
+  - Input: `{ "url": "...", "password": "..." }` OR `{ "storage_url": "..." }` (for uploaded content)
+  - Output: `{ "storage_url": "...", "metadata": {...} }` (content stored in Supabase, returns pointer)
 - `POST /chunk-story`
-  - Input: `{ "content": "...", "target_words": 5000 }`
-  - Output: `{ "chunks": [{ "content": "...", "word_count": 4998 }] }`
+  - Input: `{ "storage_url": "...", "target_words": 5000 }` (pointer to stored content)
+  - Output: `{ "chunks": [{ "storage_url": "...", "word_count": 4998 }] }` (returns pointers to stored chunks)
+
+**Note**: Pass storage URLs/paths between services instead of large text payloads to avoid brittleness.
 
 **Test script**: `scripts/test/test-modal-api.sh` - test both endpoints with sample data
 
@@ -121,17 +127,17 @@ Migrate the story processing pipeline from Modal-only to Vercel/NextJS with Moda
 - Create `/api/stories/ingest` endpoint (receives story from email webhook or manual POST)
 - Implement content extraction flow (calls Modal API)
 - Implement chunking flow (calls Modal API)
-- Save story metadata to Postgres
-- Save chunk EPUBs to Vercel Blob
-- Record processing events in `processing_log` table
+- Save story metadata to Supabase
+- Save chunk EPUBs to Supabase Storage
+- Log processing events via console.log (captured by Vercel)
 - Send notification email on success/failure
 
 **Flow**:
 
 ```
 Webhook/API → Parse input → Call Modal /extract-content →
-Call Modal /chunk-story → Generate EPUBs → Store in Blob →
-Update DB → Send notification email
+Call Modal /chunk-story → Generate EPUBs → Store in Supabase Storage →
+Update Supabase DB → Send notification email
 ```
 
 **Test script**: `scripts/test/test-ingest.sh` - end-to-end test with sample story
@@ -146,9 +152,9 @@ Update DB → Send notification email
 
 - Create `/api/delivery/send-next` endpoint
 - Query DB for next unsent chunk (earliest created, not yet sent)
-- Retrieve EPUB from Vercel Blob
+- Retrieve EPUB from Supabase Storage using storage_path
 - Send via Brevo SMTP to Kindle email
-- Update `delivery_log` with timestamp and status
+- Update chunk record with sent timestamp
 - Send confirmation notification email
 - Configure Vercel Cron to run daily at 12pm PT (8pm UTC)
 
@@ -245,9 +251,9 @@ Update DB → Send notification email
 ### Component Test Scripts (in `/scripts/test/`)
 
 1. `test-health.sh` - Test health endpoint and basic NextJS setup
-2. `test-database.sh` - Test DB operations (CRUD for stories/chunks)
+2. `test-database-operations.sh` - Test DB operations (CRUD for stories/chunks with Supabase)
 3. `test-modal-api.sh` - Test Modal endpoints (extract-content, chunk-story)
-4. `test-storage.sh` - Test Vercel Blob (upload/download EPUBs)
+4. `test-storage-operations.sh` - Test Supabase Storage (upload/download EPUBs)
 5. `test-email.sh` - Test Brevo SMTP (with TEST_MODE to skip actual sends)
 6. `test-ingest.sh` - Test story ingestion endpoint
 7. `test-delivery.sh` - Test delivery endpoint
@@ -255,21 +261,25 @@ Update DB → Send notification email
 
 ### Supporting Infrastructure
 
-- **Health endpoint**: `/api/health` showing DB, Modal, and Brevo connectivity status
+- **Health endpoint**: `/api/health` showing Supabase, Modal, and Brevo connectivity status
 - **Test mode**: `TEST_MODE=true` environment variable to mock external calls
-- **Local dev**: Use `next dev` locally with ngrok for webhook testing
+- **Local dev**: Use `next dev` locally with Supabase local instance and ngrok for webhook testing
 
 ### Local Development Workflow
 
 ```bash
-# Run NextJS locally
+# Start Supabase (first terminal)
+cd nextjs-app
+supabase start
+
+# Run NextJS locally (second terminal)
 npm run dev
 
 # In another terminal, expose with ngrok for webhook testing
 ngrok http 3000
 
 # Run any test script
-./scripts/test/test-ingest.sh
+./scripts/test/test-database-operations.sh
 
 # Check health
 curl http://localhost:3000/api/health
@@ -289,7 +299,8 @@ curl http://localhost:3000/api/health
 
 - [ ] All test scripts passing
 - [ ] Modal API deployed and responding
-- [ ] Database schema migrated
+- [ ] Supabase database schema migrated (production)
+- [ ] Supabase storage bucket 'epubs' created and configured
 - [ ] Brevo configured with new webhook URL
 - [ ] First manual story successfully processed end-to-end
 - [ ] Cron job tested and delivering correctly
@@ -302,11 +313,10 @@ curl http://localhost:3000/api/health
 ### NextJS (Vercel)
 
 ```env
-# Database
-POSTGRES_URL=<vercel-postgres-url>
-
-# Blob Storage
-BLOB_READ_WRITE_TOKEN=<vercel-blob-token>
+# Supabase (local dev or production)
+NEXT_PUBLIC_SUPABASE_URL=<supabase-project-url>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase-anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<supabase-service-role-key>
 
 # Modal API
 MODAL_API_URL=https://<modal-app-url>
