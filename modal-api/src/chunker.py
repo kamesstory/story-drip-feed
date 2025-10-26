@@ -28,8 +28,8 @@ class AgentChunker:
         self.min_words = int(target_words * (1 - tolerance))
         self.max_words = int(target_words * (1 + tolerance))
 
-    def chunk_story_from_storage(self, storage_id: str, content_url: str,
-                                 storage: SupabaseStorage) -> Dict[str, Any]:
+    async def chunk_story_from_storage(self, storage_id: str, content_url: str,
+                                       storage: SupabaseStorage) -> Dict[str, Any]:
         """
         Read story content from Supabase, chunk it, and save chunks back to Supabase.
 
@@ -52,7 +52,7 @@ class AgentChunker:
         content = storage.download_text(content_url)
 
         # Chunk the content using agent
-        chunks = self.chunk_text(content)
+        chunks = await self.chunk_text(content)
 
         # Save each chunk to Supabase
         chunk_info = []
@@ -77,7 +77,7 @@ class AgentChunker:
             "chunking_strategy": "AgentChunker"
         }
 
-    def chunk_text(self, text: str) -> List[Tuple[str, int]]:
+    async def chunk_text(self, text: str) -> List[Tuple[str, int]]:
         """
         Chunk text using Agent SDK for holistic story analysis.
 
@@ -88,10 +88,7 @@ class AgentChunker:
             Exception: If agent fails or returns no chunks
         """
         try:
-            from claude_agent_sdk import query
-            import anyio
-
-            chunks = anyio.run(self._chunk_with_agent, text)
+            chunks = await self._chunk_with_agent(text)
 
             if not chunks:
                 raise Exception("Agent returned no chunks")
@@ -105,8 +102,11 @@ class AgentChunker:
 
     async def _chunk_with_agent(self, text: str) -> List[Tuple[str, int]]:
         """Use agent to analyze full story and identify all break points."""
-        from claude_agent_sdk import query
-
+        import os
+        from anthropic import AsyncAnthropic
+        
+        client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        
         total_words = count_words(text)
         estimated_chunks = max(1, round(total_words / self.target_words))
 
@@ -162,24 +162,22 @@ If no breaks needed (story too short): NO_BREAKS_NEEDED
 Text with paragraph numbers:
 {numbered_text}"""
 
-        response_parts = []
-        async for message in query(prompt=prompt):
-            response_parts.append(str(message))
-
-        response_text = "".join(response_parts)
+        response = await client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=8000,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
+        )
+        
+        response_text = response.content[0].text
 
         print("\n" + "="*80)
         print("AGENT CHUNKING ANALYSIS:")
         print("="*80)
         print(response_text)
         print("="*80 + "\n")
-
-        if 'result=' in response_text:
-            result_start = response_text.find('result=') + 8
-            result_end = response_text.rfind("')")
-            if result_end > result_start:
-                response_text = response_text[result_start:result_end]
-                print(f"\n{'='*80}\nEXTRACTED RESULT:\n{'='*80}\n{response_text}\n{'='*80}\n")
 
         if "NO_BREAKS_NEEDED" in response_text or "NO BREAKS" in response_text:
             return [(text, count_words(text))]
@@ -283,8 +281,8 @@ Text with paragraph numbers:
         return f"───────────────────────────────────────\n*Previously:*\n> {recap_text}\n───────────────────────────────────────"
 
 
-def chunk_story(content_url: str, storage_id: str, target_words: int,
-                storage: SupabaseStorage) -> Dict[str, Any]:
+async def chunk_story(content_url: str, storage_id: str, target_words: int,
+                      storage: SupabaseStorage) -> Dict[str, Any]:
     """
     Convenience function to chunk a story from Supabase Storage.
     Always uses AgentChunker, fails loudly if issues.
@@ -302,4 +300,4 @@ def chunk_story(content_url: str, storage_id: str, target_words: int,
         Exception: If chunking fails
     """
     chunker = AgentChunker(target_words=target_words)
-    return chunker.chunk_story_from_storage(storage_id, content_url, storage)
+    return await chunker.chunk_story_from_storage(storage_id, content_url, storage)

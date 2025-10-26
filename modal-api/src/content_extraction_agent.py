@@ -99,7 +99,11 @@ async def extract_content_async(email_data: Dict[str, Any], storage_id: str,
 
 async def _extract_story_with_agent(raw_content: str) -> str:
     """Use agent to extract ONLY the story content, removing boilerplate."""
-    from claude_agent_sdk import query
+    import os
+    from anthropic import AsyncAnthropic
+    
+    print("🤖 Initializing Anthropic client for content extraction...", flush=True)
+    client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
     extraction_prompt = f"""Extract ONLY the story content from this text.
 
@@ -137,18 +141,16 @@ CRITICAL INSTRUCTIONS - REMOVE ALL NON-STORY CONTENT:
 
 Output the clean story content now:"""
 
-    response_parts = []
-    async for message in query(prompt=extraction_prompt):
-        response_parts.append(str(message))
-
-    story_content = "".join(response_parts).strip()
-
-    # Clean up any result wrapper
-    if 'result=' in story_content:
-        result_start = story_content.find('result=') + 8
-        result_end = story_content.rfind("')")
-        if result_end > result_start:
-            story_content = story_content[result_start:result_end]
+    response = await client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=8192,
+        messages=[{
+            "role": "user",
+            "content": extraction_prompt
+        }]
+    )
+    
+    story_content = response.content[0].text.strip()
 
     # Basic validation - should be substantial
     if len(story_content) < 500:

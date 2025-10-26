@@ -3,14 +3,10 @@ Modal API for Story Processing
 
 Stateless HTTP API service for content extraction and story chunking.
 Uses Supabase Storage for all file operations.
-
-Note: Imports are done inside functions to avoid local dependency issues
-when Modal parses this file. This is the standard Modal pattern.
 """
 
 import modal
 import os
-import traceback
 
 # Environment detection
 IS_DEV = os.environ.get("MODAL_ENVIRONMENT", "dev") != "prod"
@@ -49,148 +45,168 @@ image = (
         modal.Secret.from_name("story-prep-secrets"),
         modal.Secret.from_name("supabase-secrets"),
     ],
-    timeout=600,
-)
-@modal.fastapi_endpoint(method="POST")
-async def extract_content_endpoint(email_data: dict, storage_id: str):
-    """Extract content from email data and store in Supabase."""
-    from src.supabase_storage import SupabaseStorage
-    from src.content_extraction_agent import extract_content_async
-    
-    print(f"\n{'='*80}")
-    print(f"📥 EXTRACT CONTENT REQUEST")
-    print(f"{'='*80}")
-    print(f"Storage ID: {storage_id}")
-    print(f"Subject: {email_data.get('subject', 'N/A')}")
-    print(f"From: {email_data.get('from', 'N/A')}")
-
-    try:
-        storage = SupabaseStorage()
-        result = await extract_content_async(email_data, storage_id, storage)
-
-        print(f"\n✅ Content extraction successful")
-        print(f"   Content URL: {result['content_url']}")
-        print(f"   Title: {result['metadata'].get('title')}")
-        print(f"   Word count: {result['metadata'].get('word_count')}")
-        print(f"{'='*80}\n")
-
-        return {
-            "status": "success",
-            "content_url": result["content_url"],
-            "metadata": result["metadata"]
-        }
-
-    except Exception as e:
-        print(f"\n❌ Content extraction error: {e}")
-        traceback.print_exc()
-        print(f"{'='*80}\n")
-        
-        return {
-            "error": "Internal Server Error",
-            "message": str(e)
-        }
-
-
-@app.function(
-    image=image,
-    secrets=[
-        modal.Secret.from_name("story-prep-secrets"),
-        modal.Secret.from_name("supabase-secrets"),
-    ],
     timeout=900,
 )
-@modal.fastapi_endpoint(method="POST")
-async def chunk_story_endpoint(content_url: str, storage_id: str, target_words: int = 5000):
-    """Chunk story content from Supabase Storage."""
+@modal.asgi_app()
+def fastapi_app():
+    """Create and return the FastAPI app."""
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
+    import traceback
     from src.supabase_storage import SupabaseStorage
+    from src.content_extraction_agent import extract_content_async
     from src.chunker import chunk_story
 
-    print(f"\n{'='*80}")
-    print(f"✂️  CHUNK STORY REQUEST")
-    print(f"{'='*80}")
-    print(f"Storage ID: {storage_id}")
-    print(f"Content URL: {content_url}")
-    print(f"Target words: {target_words}")
+    web_app = FastAPI(title="Nighttime Story Prep API")
 
-    try:
-        storage = SupabaseStorage()
-        
-        result = await chunk_story(
-            content_url=content_url,
-            storage_id=storage_id,
-            target_words=target_words,
-            storage=storage
-        )
+    @web_app.get("/health")
+    async def health_endpoint():
+        """Health check endpoint."""
+        services = {}
 
-        print(f"\n✅ Chunking successful")
-        print(f"   Total chunks: {result['total_chunks']}")
-        print(f"   Total words: {result['total_words']}")
-        print(f"   Strategy used: {result['chunking_strategy']}")
-        print(f"{'='*80}\n")
+        # Check Anthropic API
+        try:
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+            if anthropic_key:
+                services["anthropic_api"] = "ok"
+            else:
+                services["anthropic_api"] = "error: key not set"
+        except Exception as e:
+            services["anthropic_api"] = f"error: {str(e)}"
+
+        # Check Supabase Storage
+        try:
+            storage = SupabaseStorage()
+            if storage.health_check():
+                services["supabase_storage"] = "ok"
+            else:
+                services["supabase_storage"] = "error: health check failed"
+        except Exception as e:
+            services["supabase_storage"] = f"error: {str(e)}"
+
+        # Overall status
+        all_healthy = all(status == "ok" for status in services.values())
+        overall_status = "healthy" if all_healthy else "degraded"
+
+        print(f"🏥 Health check: {overall_status}", flush=True)
+        for service, status in services.items():
+            print(f"   {service}: {status}", flush=True)
 
         return {
-            "status": "success",
-            **result
+            "status": overall_status,
+            "services": services
         }
 
-    except Exception as e:
-        print(f"\n❌ Chunking error: {e}")
-        traceback.print_exc()
-        print(f"{'='*80}\n")
-        
-        return {
-            "error": "Internal Server Error",
-            "message": str(e)
-        }
+    @web_app.post("/extract-content")
+    async def extract_content_endpoint(request: Request):
+        """Extract content from email data and store in Supabase."""
+        try:
+            body = await request.json()
+            email_data = body.get("email_data")
+            storage_id = body.get("storage_id")
 
+            print(f"\n{'='*80}", flush=True)
+            print(f"📥 EXTRACT CONTENT REQUEST", flush=True)
+            print(f"{'='*80}", flush=True)
+            print(f"Storage ID: {storage_id}", flush=True)
+            print(f"Subject: {email_data.get('subject', 'N/A') if email_data else 'N/A'}", flush=True)
+            print(f"From: {email_data.get('from', 'N/A') if email_data else 'N/A'}", flush=True)
 
-@app.function(
-    image=image,
-    secrets=[
-        modal.Secret.from_name("story-prep-secrets"),
-        modal.Secret.from_name("supabase-secrets"),
-    ],
-    timeout=30,
-)
-@modal.fastapi_endpoint(method="GET")
-def health_endpoint():
-    """Health check endpoint."""
-    from src.supabase_storage import SupabaseStorage
-    
-    services = {}
+            if not email_data or not storage_id:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Bad Request",
+                        "message": "Missing email_data or storage_id"
+                    }
+                )
 
-    # Check Anthropic API
-    try:
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        if anthropic_key:
-            services["anthropic_api"] = "ok"
-        else:
-            services["anthropic_api"] = "error: key not set"
-    except Exception as e:
-        services["anthropic_api"] = f"error: {str(e)}"
+            storage = SupabaseStorage()
+            result = await extract_content_async(email_data, storage_id, storage)
 
-    # Check Supabase Storage
-    try:
-        storage = SupabaseStorage()
-        if storage.health_check():
-            services["supabase_storage"] = "ok"
-        else:
-            services["supabase_storage"] = "error: health check failed"
-    except Exception as e:
-        services["supabase_storage"] = f"error: {str(e)}"
+            print(f"\n✅ Content extraction successful", flush=True)
+            print(f"   Content URL: {result['content_url']}", flush=True)
+            print(f"   Title: {result['metadata'].get('title')}", flush=True)
+            print(f"   Word count: {result['metadata'].get('word_count')}", flush=True)
+            print(f"{'='*80}\n", flush=True)
 
-    # Overall status
-    all_healthy = all(status == "ok" for status in services.values())
-    overall_status = "healthy" if all_healthy else "degraded"
+            return {
+                "status": "success",
+                "content_url": result["content_url"],
+                "metadata": result["metadata"]
+            }
 
-    print(f"🏥 Health check: {overall_status}")
-    for service, status in services.items():
-        print(f"   {service}: {status}")
+        except Exception as e:
+            print(f"\n❌ Content extraction error: {e}", flush=True)
+            traceback.print_exc()
+            print(f"{'='*80}\n", flush=True)
 
-    return {
-        "status": overall_status,
-        "services": services
-    }
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Internal Server Error",
+                    "message": str(e)
+                }
+            )
+
+    @web_app.post("/chunk-story")
+    async def chunk_story_endpoint(request: Request):
+        """Chunk story content from Supabase Storage."""
+        try:
+            body = await request.json()
+            content_url = body.get("content_url")
+            storage_id = body.get("storage_id")
+            target_words = body.get("target_words", 5000)
+
+            print(f"\n{'='*80}", flush=True)
+            print(f"✂️  CHUNK STORY REQUEST", flush=True)
+            print(f"{'='*80}", flush=True)
+            print(f"Storage ID: {storage_id}", flush=True)
+            print(f"Content URL: {content_url}", flush=True)
+            print(f"Target words: {target_words}", flush=True)
+
+            if not content_url or not storage_id:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Bad Request",
+                        "message": "Missing content_url or storage_id"
+                    }
+                )
+
+            storage = SupabaseStorage()
+            result = await chunk_story(
+                content_url=content_url,
+                storage_id=storage_id,
+                target_words=target_words,
+                storage=storage
+            )
+
+            print(f"\n✅ Chunking successful", flush=True)
+            print(f"   Total chunks: {result['total_chunks']}", flush=True)
+            print(f"   Total words: {result['total_words']}", flush=True)
+            print(f"   Strategy used: {result['chunking_strategy']}", flush=True)
+            print(f"{'='*80}\n", flush=True)
+
+            return {
+                "status": "success",
+                **result
+            }
+
+        except Exception as e:
+            print(f"\n❌ Chunking error: {e}", flush=True)
+            traceback.print_exc()
+            print(f"{'='*80}\n", flush=True)
+
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Internal Server Error",
+                    "message": str(e)
+                }
+            )
+
+    return web_app
 
 
 # Local testing entrypoint
@@ -202,6 +218,6 @@ def main():
     print("\nTo deploy:")
     print(f"  modal deploy modal-api/main.py")
     print("\nEndpoints:")
+    print("  GET /health")
     print("  POST /extract-content")
     print("  POST /chunk-story")
-    print("  GET /health")
