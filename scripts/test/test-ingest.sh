@@ -235,8 +235,11 @@ test_email_webhook() {
   
   subsection "Creating test email payload"
   
+  # Generate unique message ID
+  local message_id="test-message-$(date +%s)"
+  
   # Create a test email payload (Brevo format)
-  local test_email_payload=$(cat << 'EOF'
+  local test_email_payload=$(cat << EOF
 {
   "items": [
     {
@@ -253,7 +256,7 @@ test_email_webhook() {
       "Subject": "Test Story: The Adventure Begins",
       "RawHtmlBody": "<html><body><p>Once upon a time, there was a test story.</p><p>This is a simple test with minimal content to verify the pipeline works.</p></body></html>",
       "RawTextBody": "Once upon a time, there was a test story.\n\nThis is a simple test with minimal content to verify the pipeline works.",
-      "MessageId": "test-message-$(date +%s)"
+      "MessageId": "$message_id"
     }
   ]
 }
@@ -261,11 +264,13 @@ EOF
 )
   
   info "Sample email payload (Brevo format):"
+  echo "  From: test@example.com" | tee -a "$LOG_FILE"
+  echo "  Subject: Test Story: The Adventure Begins" | tee -a "$LOG_FILE"
+  echo "  Message ID: $message_id" | tee -a "$LOG_FILE"
+  
   if [ "$VERBOSE" = true ]; then
+    info "Full payload:"
     print_json "$test_email_payload"
-  else
-    echo "  From: test@example.com" | tee -a "$LOG_FILE"
-    echo "  Subject: Test Story: The Adventure Begins" | tee -a "$LOG_FILE"
   fi
   
   subsection "Sending test email to webhook"
