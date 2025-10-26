@@ -4,7 +4,10 @@ This is the main web application for the story processing pipeline, built with N
 
 ## Prerequisites
 
-- Node.js 20.9.0 or higher
+- Node.js 20.9.0 or higher ⚠️
+  - Next.js 16 requires Node.js >= 20.9.0
+  - Check version: `node --version`
+  - Upgrade if needed: Use nvm or download from nodejs.org
 - Docker Desktop (for local Supabase)
 - Supabase CLI: `npm install -g supabase`
 
@@ -27,6 +30,7 @@ supabase start
 ```
 
 This will output your local credentials:
+
 - API URL (usually `http://localhost:54321`)
 - anon key
 - service_role key
@@ -105,6 +109,7 @@ Test all database CRUD operations:
 ```
 
 This will:
+
 - Create a test story
 - Add chunks to the story
 - Query and update records
@@ -125,6 +130,7 @@ Test Supabase Storage for EPUB files:
 ```
 
 This will:
+
 - Upload a test EPUB file
 - Download it back
 - Generate public URLs
@@ -168,6 +174,7 @@ nextjs-app/
 Returns application health status and database connectivity.
 
 Response:
+
 ```json
 {
   "status": "ok",
@@ -183,6 +190,7 @@ Response:
 Main story records with metadata and processing status.
 
 Key fields:
+
 - `id`: Auto-incrementing primary key
 - `email_id`: Unique identifier from source email
 - `title`, `author`: Story metadata
@@ -196,6 +204,7 @@ Key fields:
 Individual chunks of stories ready for delivery.
 
 Key fields:
+
 - `id`: Auto-incrementing primary key
 - `story_id`: Foreign key to stories (CASCADE delete)
 - `chunk_number`, `total_chunks`: Position in sequence
@@ -232,6 +241,7 @@ supabase db push
 ### 4. Create Storage Bucket
 
 In Supabase dashboard:
+
 - Go to Storage
 - Create bucket named `epubs`
 - Set to public access
@@ -247,6 +257,7 @@ vercel
 ```
 
 Set environment variables in Vercel dashboard:
+
 - `NEXT_PUBLIC_SUPABASE_URL` (from Supabase project settings)
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` (from Supabase project settings)
 - `SUPABASE_SERVICE_ROLE_KEY` (from Supabase project settings)
@@ -256,6 +267,7 @@ Set environment variables in Vercel dashboard:
 Visit `https://your-app.vercel.app/api/health`
 
 Should return:
+
 ```json
 {
   "status": "ok",
@@ -268,6 +280,7 @@ Should return:
 ### Viewing Database
 
 Use Supabase Studio (local):
+
 ```bash
 # Studio URL is shown when you run: supabase start
 # Usually: http://localhost:54323
@@ -311,6 +324,7 @@ Make sure `.env.local` exists and contains valid keys from `supabase start`.
 ### "Table does not exist"
 
 Run migrations:
+
 ```bash
 supabase db reset
 ```
@@ -322,6 +336,7 @@ Create the bucket in Supabase Studio or using the CLI.
 ## Next Steps
 
 After completing Tasks 1 & 2, proceed with:
+
 - Task 3: Modal Python API Service
 - Task 4: Brevo Email Integration
 - Task 5: Story Processing Pipeline
