@@ -32,10 +32,10 @@ image = (
         "python-dateutil>=2.9.0",
         "fastapi[standard]",
     )
-    .add_local_file("modal-api/src/supabase_storage.py", "/root/src/supabase_storage.py")
-    .add_local_file("modal-api/src/content_extraction_agent.py", "/root/src/content_extraction_agent.py")
-    .add_local_file("modal-api/src/chunker.py", "/root/src/chunker.py")
-    .add_local_file("modal-api/src/email_parser.py", "/root/src/email_parser.py")
+    .add_local_file("src/supabase_storage.py", "/root/src/supabase_storage.py")
+    .add_local_file("src/content_extraction_agent.py", "/root/src/content_extraction_agent.py")
+    .add_local_file("src/chunker.py", "/root/src/chunker.py")
+    .add_local_file("src/email_parser.py", "/root/src/email_parser.py")
 )
 
 

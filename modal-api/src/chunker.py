@@ -122,7 +122,13 @@ class AgentChunker:
                 paragraph_positions[para_num] = current_pos
                 current_pos += len(para) + 2
 
-        max_preview_length = 100000
+        # For very long stories (>20k words), use simpler paragraph-based chunking
+        # instead of agent analysis to avoid context length issues
+        if total_words > 20000:
+            print(f"Story is large ({total_words} words), using paragraph-based chunking")
+            return self._chunk_by_paragraphs(text, paragraphs)
+        
+        max_preview_length = 200000  # Increased from 100k to handle longer stories
         if len(numbered_text) > max_preview_length:
             numbered_text = numbered_text[:max_preview_length] + "\n\n[...text truncated for length...]"
 
@@ -279,6 +285,51 @@ Text with paragraph numbers:
         recap_text = " ".join(recap_sentences).strip()
 
         return f"───────────────────────────────────────\n*Previously:*\n> {recap_text}\n───────────────────────────────────────"
+
+    def _chunk_by_paragraphs(self, text: str, paragraphs: List[str]) -> List[Tuple[str, int]]:
+        """Simple paragraph-based chunking for very long stories."""
+        chunks = []
+        current_chunk = []
+        current_words = 0
+        
+        for para in paragraphs:
+            if not para.strip():
+                continue
+                
+            para_words = count_words(para)
+            
+            # Check for explicit scene breaks
+            is_scene_break = para.strip() in ['--', '---', '* * *', '═══', '━━━']
+            
+            # If adding this paragraph would exceed max_words, start new chunk
+            if current_words > 0 and (current_words + para_words > self.max_words or is_scene_break):
+                # Save current chunk
+                chunk_text = "\n\n".join(current_chunk)
+                chunks.append((chunk_text, current_words))
+                current_chunk = []
+                current_words = 0
+                
+                # Skip scene break paragraphs (don't include them in chunks)
+                if is_scene_break:
+                    continue
+            
+            current_chunk.append(para)
+            current_words += para_words
+            
+            # If we've reached a good size and hit a scene break, start new chunk
+            if current_words >= self.min_words and is_scene_break:
+                chunk_text = "\n\n".join(current_chunk[:-1])  # Exclude scene break
+                chunks.append((chunk_text, current_words - para_words))
+                current_chunk = []
+                current_words = 0
+        
+        # Add final chunk if any content remains
+        if current_chunk:
+            chunk_text = "\n\n".join(current_chunk)
+            chunks.append((chunk_text, current_words))
+        
+        print(f"Created {len(chunks)} chunks using paragraph-based splitting")
+        return chunks
 
 
 async def chunk_story(content_url: str, storage_id: str, target_words: int,

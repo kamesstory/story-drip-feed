@@ -46,21 +46,45 @@ async def extract_content_async(email_data: Dict[str, Any], storage_id: str,
         raise Exception("EmailParser could not extract content from email")
 
     raw_content = result["text"]
-    print(f"✅ Raw content extracted: {len(raw_content)} chars")
+    source_type = result.get("source_type", "inline")
+    print(f"✅ Raw content extracted: {len(raw_content)} chars (source: {source_type})")
 
-    # Step 2: Agent cleans the raw content
-    print("\n🤖 Step 2: Agent cleaning content...")
-    try:
-        story_content = await _extract_story_with_agent(raw_content)
-    except ImportError:
-        raise Exception("claude-agent-sdk not installed")
-    except Exception as e:
-        raise Exception(f"Agent cleaning failed: {str(e)}")
+    # Step 2: Agent cleans the raw content (skip for URL-extracted content which is already clean)
+    if source_type == "url":
+        print("\n✅ Skipping agent cleaning for URL-extracted content (already clean from .entry-content)")
+        # Convert HTML to text with proper paragraph breaks
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(raw_content, "html.parser")
+        
+        # Replace paragraph tags with double newlines to create proper breaks
+        for br in soup.find_all(['br', 'br/']):
+            br.replace_with('\n')
+        for p in soup.find_all(['p', 'div']):
+            p.insert_after('\n\n')
+        
+        story_content = soup.get_text()
+        # Clean up multiple newlines but preserve double newlines for paragraph breaks
+        story_content = re.sub(r'\n{3,}', '\n\n', story_content)
+        story_content = story_content.strip()
+        
+        print(f"✅ Extracted text from HTML: {len(story_content)} chars")
+        
+        # Verify paragraph breaks were created
+        para_count = len(re.split(r'\n\s*\n', story_content))
+        print(f"   Found {para_count} paragraphs")
+    else:
+        print("\n🤖 Step 2: Agent cleaning content...")
+        try:
+            story_content = await _extract_story_with_agent(raw_content)
+        except ImportError:
+            raise Exception("claude-agent-sdk not installed")
+        except Exception as e:
+            raise Exception(f"Agent cleaning failed: {str(e)}")
 
-    if not story_content:
-        raise Exception("Agent returned no content after cleaning")
+        if not story_content:
+            raise Exception("Agent returned no content after cleaning")
 
-    print(f"✅ Cleaned content: {len(story_content)} chars")
+        print(f"✅ Cleaned content: {len(story_content)} chars")
 
     # Step 3: Calculate metadata and upload to Supabase
     word_count = len(re.findall(r'\b\w+\b', story_content))
@@ -143,7 +167,7 @@ Output the clean story content now:"""
 
     response = await client.messages.create(
         model="claude-3-5-sonnet-20241022",
-        max_tokens=8192,
+        max_tokens=8192,  # Claude's max output tokens (used only for inline email cleaning)
         messages=[{
             "role": "user",
             "content": extraction_prompt

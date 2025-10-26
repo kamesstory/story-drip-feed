@@ -118,15 +118,26 @@ class PasswordProtectedURLStrategy(EmailParsingStrategy):
         # Extract URL
         url = self._extract_url(text_content + html_content)
         if not url:
+            print("❌ No URL found in email content")
             return None
+        
+        print(f"✅ URL found: {url}")
 
         # Extract password if present
         password = self._extract_password(text_content + html_content)
+        if password:
+            print(f"🔑 Password found: {password}")
+        else:
+            print("⚠️  No password found")
 
         # Fetch content from URL
+        print(f"📥 Fetching content from URL...")
         story_text = self._fetch_url_content(url, password)
         if not story_text:
+            print(f"❌ Failed to fetch content from URL: {url}")
             return None
+        
+        print(f"✅ Fetched {len(story_text)} characters from URL")
 
         author = InlineTextStrategy()._extract_author(from_email)
 
@@ -134,6 +145,7 @@ class PasswordProtectedURLStrategy(EmailParsingStrategy):
             "text": story_text.strip(),
             "title": InlineTextStrategy()._clean_subject(subject),
             "author": author,
+            "source_type": "url",
         }
 
     def _extract_url(self, text: str) -> Optional[str]:
@@ -231,7 +243,9 @@ class PasswordProtectedURLStrategy(EmailParsingStrategy):
             return str(content_html)
 
         except Exception as e:
-            print(f"Failed to fetch URL {url}: {e}")
+            print(f"❌ Failed to fetch URL {url}: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _extract_post_content(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
