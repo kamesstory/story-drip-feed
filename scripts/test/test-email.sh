@@ -32,7 +32,7 @@ echo -e "${YELLOW}2. Testing webhook endpoint info (GET)...${NC}"
 WEBHOOK_INFO=$(curl -sf "${NEXTJS_URL}/api/webhooks/email")
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Webhook endpoint info retrieved${NC}"
-    echo "$WEBHOOK_INFO" | jq '.' 2>/dev/null || echo "$WEBHOOK_INFO"
+    echo "$WEBHOOK_INFO" | python3 -m json.tool 2>/dev/null || echo "$WEBHOOK_INFO"
 else
     echo -e "${RED}❌ Failed to get webhook info${NC}"
     exit 1
@@ -71,7 +71,7 @@ RESPONSE_URL=$(curl -sf -X POST "${NEXTJS_URL}/api/webhooks/email" \
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Webhook processed URL email successfully${NC}"
-    echo "$RESPONSE_URL" | jq '.' 2>/dev/null || echo "$RESPONSE_URL"
+    echo "$RESPONSE_URL" | python3 -m json.tool 2>/dev/null || echo "$RESPONSE_URL"
 else
     echo -e "${RED}❌ Failed to process webhook with URL${NC}"
     exit 1
@@ -110,7 +110,7 @@ RESPONSE_INLINE=$(curl -sf -X POST "${NEXTJS_URL}/api/webhooks/email" \
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Webhook processed inline content email successfully${NC}"
-    echo "$RESPONSE_INLINE" | jq '.' 2>/dev/null || echo "$RESPONSE_INLINE"
+    echo "$RESPONSE_INLINE" | python3 -m json.tool 2>/dev/null || echo "$RESPONSE_INLINE"
 else
     echo -e "${RED}❌ Failed to process webhook with inline content${NC}"
     exit 1
@@ -181,10 +181,10 @@ RESPONSE_MULTIPLE=$(curl -sf -X POST "${NEXTJS_URL}/api/webhooks/email" \
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Webhook processed multiple emails successfully${NC}"
-    echo "$RESPONSE_MULTIPLE" | jq '.' 2>/dev/null || echo "$RESPONSE_MULTIPLE"
+    echo "$RESPONSE_MULTIPLE" | python3 -m json.tool 2>/dev/null || echo "$RESPONSE_MULTIPLE"
     
     # Check that response indicates 3 emails were processed
-    COUNT=$(echo "$RESPONSE_MULTIPLE" | jq -r '.count' 2>/dev/null || echo "0")
+    COUNT=$(echo "$RESPONSE_MULTIPLE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('count', 0))" 2>/dev/null || echo "0")
     if [ "$COUNT" = "3" ]; then
         echo -e "${GREEN}✓ All 3 emails were queued for processing${NC}"
     else
@@ -243,7 +243,7 @@ RESPONSE_BODY=$(echo "$RESPONSE_INVALID" | head -n-1)
 
 if [ "$HTTP_CODE" = "400" ]; then
     echo -e "${GREEN}✓ Webhook correctly rejected invalid payload (HTTP 400)${NC}"
-    echo "$RESPONSE_BODY" | jq '.' 2>/dev/null || echo "$RESPONSE_BODY"
+    echo "$RESPONSE_BODY" | python3 -m json.tool 2>/dev/null || echo "$RESPONSE_BODY"
 else
     echo -e "${YELLOW}⚠ Expected HTTP 400, got: $HTTP_CODE${NC}"
 fi
