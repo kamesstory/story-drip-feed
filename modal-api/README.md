@@ -46,7 +46,7 @@ Extract story content from email data and save to Supabase Storage.
 
 ### POST `/chunk-story`
 
-Chunk story content into reading-sized segments.
+Chunk story content into reading-sized segments using Claude Agent SDK for intelligent break point detection.
 
 **Request:**
 
@@ -54,16 +54,9 @@ Chunk story content into reading-sized segments.
 {
   "content_url": "story-content/unique-id-123/content.txt",
   "storage_id": "unique-id-123",
-  "target_words": 5000,
-  "strategy": "agent"
+  "target_words": 5000
 }
 ```
-
-**Strategies:**
-
-- `agent` - Claude Agent SDK (default, most intelligent)
-- `llm` - Claude API (fallback to simple)
-- `simple` - Paragraph-based chunking
 
 **Response:**
 

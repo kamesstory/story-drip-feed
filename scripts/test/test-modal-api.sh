@@ -108,8 +108,7 @@ echo ""
 CHUNK_DATA='{
   "content_url": "'$CONTENT_URL'",
   "storage_id": "'$STORAGE_ID'",
-  "target_words": 5000,
-  "strategy": "simple"
+  "target_words": 5000
 }'
 
 CHUNK_RESPONSE=$(curl -s -X POST "$CHUNK_URL" \

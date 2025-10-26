@@ -73,8 +73,7 @@ curl -X POST $MODAL_API_URL--chunk-story-endpoint \
   -d '{
     "content_url": "story-content/unique-123/content.txt",
     "storage_id": "unique-123",
-    "target_words": 5000,
-    "strategy": "agent"
+    "target_words": 5000
   }'
 ```
 

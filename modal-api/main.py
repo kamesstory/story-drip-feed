@@ -12,7 +12,7 @@ from fastapi import HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 
 from src.content_extraction_agent import extract_content
-from src.chunker import chunk_story, AgentChunker, LLMChunker, SimpleChunker
+from src.chunker import chunk_story
 from src.supabase_storage import SupabaseStorage
 
 # Environment detection
@@ -197,8 +197,7 @@ async def chunk_story_endpoint(request: Request):
         {
             "content_url": "story-content/unique-id/content.txt",
             "storage_id": "unique-id-for-story",
-            "target_words": 5000,
-            "strategy": "agent|llm|simple"  # optional, defaults to "agent"
+            "target_words": 5000
         }
 
     Response:
@@ -230,7 +229,6 @@ async def chunk_story_endpoint(request: Request):
         content_url = body.get("content_url")
         storage_id = body.get("storage_id")
         target_words = body.get("target_words", 5000)
-        strategy_name = body.get("strategy", "agent").lower()
 
         if not content_url or not storage_id:
             return JSONResponse(
@@ -244,26 +242,16 @@ async def chunk_story_endpoint(request: Request):
         print(f"Storage ID: {storage_id}")
         print(f"Content URL: {content_url}")
         print(f"Target words: {target_words}")
-        print(f"Strategy: {strategy_name}")
 
         # Initialize Supabase Storage
         storage = SupabaseStorage()
 
-        # Select chunking strategy
-        if strategy_name == "simple":
-            strategy = SimpleChunker(target_words=target_words)
-        elif strategy_name == "llm":
-            strategy = LLMChunker(target_words=target_words, fallback_to_simple=True)
-        else:  # "agent" or default
-            strategy = AgentChunker(target_words=target_words, fallback_to_simple=True)
-
-        # Chunk the story
+        # Chunk the story (always uses AgentChunker)
         result = chunk_story(
             content_url=content_url,
             storage_id=storage_id,
             target_words=target_words,
-            storage=storage,
-            strategy=strategy
+            storage=storage
         )
 
         print(f"\n✅ Chunking successful")
