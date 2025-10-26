@@ -50,7 +50,8 @@ image = (
 @modal.asgi_app()
 def fastapi_app():
     """Create and return the FastAPI app."""
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI, Request, HTTPException, Depends
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
     from fastapi.responses import JSONResponse
     import traceback
     from src.supabase_storage import SupabaseStorage
@@ -58,6 +59,22 @@ def fastapi_app():
     from src.chunker import chunk_story
 
     web_app = FastAPI(title="Nighttime Story Prep API")
+    security = HTTPBearer()
+
+    def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+        """Verify the bearer token matches MODAL_API_KEY."""
+        expected_key = os.environ.get("MODAL_API_KEY")
+        if not expected_key:
+            # If no key is configured, allow all requests (dev mode)
+            print("⚠️  Warning: MODAL_API_KEY not set, allowing request", flush=True)
+            return True
+        
+        if credentials.credentials != expected_key:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid API key"
+            )
+        return True
 
     @web_app.get("/health")
     async def health_endpoint():
@@ -98,7 +115,7 @@ def fastapi_app():
         }
 
     @web_app.post("/extract-content")
-    async def extract_content_endpoint(request: Request):
+    async def extract_content_endpoint(request: Request, authenticated: bool = Depends(verify_token)):
         """Extract content from email data and store in Supabase."""
         try:
             body = await request.json()
@@ -150,7 +167,7 @@ def fastapi_app():
             )
 
     @web_app.post("/chunk-story")
-    async def chunk_story_endpoint(request: Request):
+    async def chunk_story_endpoint(request: Request, authenticated: bool = Depends(verify_token)):
         """Chunk story content from Supabase Storage."""
         try:
             body = await request.json()
