@@ -11,10 +11,10 @@ from src.email_parser import EmailParser
 from src.supabase_storage import SupabaseStorage
 
 
-def extract_content(email_data: Dict[str, Any], storage_id: str,
-                   storage: SupabaseStorage) -> Dict[str, Any]:
+async def extract_content_async(email_data: Dict[str, Any], storage_id: str,
+                               storage: SupabaseStorage) -> Dict[str, Any]:
     """
-    Extract and clean story content from email.
+    Extract and clean story content from email (async version).
     
     Two-step process:
     1. EmailParser extracts raw content (URL or inline)
@@ -51,8 +51,7 @@ def extract_content(email_data: Dict[str, Any], storage_id: str,
     # Step 2: Agent cleans the raw content
     print("\n🤖 Step 2: Agent cleaning content...")
     try:
-        import anyio
-        story_content = anyio.run(_extract_story_with_agent, raw_content)
+        story_content = await _extract_story_with_agent(raw_content)
     except ImportError:
         raise Exception("claude-agent-sdk not installed")
     except Exception as e:
