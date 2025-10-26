@@ -11,10 +11,12 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.76.1",
     "@types/nodemailer": "^7.0.3",
+    "epub-gen-memory": "^1.1.2",
     "next": "16.0.0",
     "nodemailer": "^7.0.10",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "uuid": "^11.0.5",
     "zod": "^4.1.12"
   },
   "devDependencies": {
@@ -22,6 +24,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
     "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "16.0.0",

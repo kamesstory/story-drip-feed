@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createStory } from "@/lib/db";
+import { uploadJSON } from "@/lib/storage";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * Brevo inbound email webhook format
@@ -25,10 +27,12 @@ interface BrevoWebhookPayload {
 }
 
 /**
- * Transformed email format for Modal API
+ * Transformed email format for storage and processing
  */
 interface TransformedEmail {
   email_id: string;
+  storage_id: string;
+  storage_path: string;
   from: string;
   subject: string;
   html: string;
@@ -36,16 +40,26 @@ interface TransformedEmail {
 }
 
 /**
- * Transform Brevo email item to Modal API format
+ * Transform Brevo email item and prepare for storage
  */
-function transformBrevoEmail(item: BrevoEmailItem): TransformedEmail {
+async function transformBrevoEmail(
+  item: BrevoEmailItem
+): Promise<TransformedEmail> {
   // Use MessageId if available, otherwise generate from timestamp and sender
   const email_id =
     item.MessageId ||
     `${Date.now()}-${item.From.Address.replace(/[^a-z0-9]/gi, "_")}`;
 
+  // Generate unique storage ID for this story
+  const storage_id = uuidv4();
+
+  // Storage path for email data
+  const storage_path = `email-data/${storage_id}/email.json`;
+
   return {
     email_id,
+    storage_id,
+    storage_path,
     from: item.From.Address,
     subject: item.Subject,
     html: item.RawHtmlBody || "",
@@ -54,36 +68,77 @@ function transformBrevoEmail(item: BrevoEmailItem): TransformedEmail {
 }
 
 /**
- * Process a single email (to be implemented in Task 5)
- * For now, just create a story record in pending state
+ * Process a single email - persist email data and trigger ingestion
  */
 async function processEmail(email: TransformedEmail): Promise<void> {
+  const startTime = Date.now();
+
   try {
-    console.log("Processing email:", {
+    console.log("📧 Processing email:", {
       email_id: email.email_id,
+      storage_id: email.storage_id,
       from: email.from,
       subject: email.subject,
     });
 
-    // Create story record in pending state
+    // 1. Upload email data to Supabase Storage FIRST (before creating story record)
+    //    This ensures we don't lose data if webhook fails after DB write
+    console.log(`📤 Uploading email data to storage: ${email.storage_path}`);
+    await uploadJSON("epubs", email.storage_path, {
+      email_id: email.email_id,
+      from: email.from,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+      received_at: new Date().toISOString(),
+    });
+    console.log(`✅ Email data persisted to storage`);
+
+    // 2. Create story record in pending state with storage reference
     const story = await createStory({
       email_id: email.email_id,
       title: email.subject,
       source: "email",
     });
 
-    console.log("Story created:", {
+    console.log("✅ Story created in database:", {
       id: story.id,
       email_id: email.email_id,
       status: story.status,
+      duration_ms: Date.now() - startTime,
     });
 
-    // TODO (Task 5): Call story ingestion endpoint to process with Modal API
-    // For now, we just create the story record in pending state
+    // 3. Trigger async processing by calling ingestion endpoint
+    //    This happens in the background, don't await
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+
+    console.log(`🔄 Triggering async processing for story ${story.id}`);
+
+    // Don't await - let it run in background
+    fetch(`${baseUrl}/api/stories/ingest`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        story_id: story.id,
+        storage_id: email.storage_id,
+        storage_path: email.storage_path,
+      }),
+    }).catch((error) => {
+      console.error(
+        `❌ Failed to trigger ingestion for story ${story.id}:`,
+        error
+      );
+    });
+
+    console.log(`✅ Email processing complete (${Date.now() - startTime}ms)`);
   } catch (error) {
-    console.error("Failed to process email:", {
+    console.error("❌ Failed to process email:", {
       email_id: email.email_id,
+      storage_id: email.storage_id,
       error: error instanceof Error ? error.message : String(error),
+      duration_ms: Date.now() - startTime,
     });
     throw error;
   }
@@ -116,13 +171,16 @@ export async function POST(request: NextRequest) {
 
     console.log(`Received ${body.items.length} email(s) from Brevo webhook`);
 
-    // Transform all emails from Brevo format to Modal API format
-    const transformedEmails = body.items.map(transformBrevoEmail);
+    // Transform all emails from Brevo format and prepare for storage
+    const transformedEmails = await Promise.all(
+      body.items.map(transformBrevoEmail)
+    );
 
     // Log transformed emails for debugging
     transformedEmails.forEach((email) => {
       console.log("Transformed email:", {
         email_id: email.email_id,
+        storage_id: email.storage_id,
         from: email.from,
         subject: email.subject,
         text_length: email.text.length,
@@ -130,30 +188,37 @@ export async function POST(request: NextRequest) {
       });
     });
 
-    // Respond immediately with 200 OK
-    const response = NextResponse.json({
-      message: "Emails received and queued for processing",
+    // Process all emails in parallel and WAIT for persistence
+    // This ensures email data is safely stored before we return success to Brevo
+    const results = await Promise.allSettled(
+      transformedEmails.map((email) => processEmail(email))
+    );
+
+    // Check for failures
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) {
+      console.error(
+        `❌ Failed to process ${failures.length}/${results.length} emails`
+      );
+      failures.forEach((failure, idx) => {
+        if (failure.status === "rejected") {
+          console.error(`  - Email ${idx + 1}: ${failure.reason}`);
+        }
+      });
+    }
+
+    const successCount = results.filter((r) => r.status === "fulfilled").length;
+    console.log(
+      `✅ Successfully processed ${successCount}/${results.length} emails`
+    );
+
+    // Return success to Brevo (email data is now safely persisted)
+    return NextResponse.json({
+      message: "Emails received and persisted",
       count: transformedEmails.length,
+      success_count: successCount,
       email_ids: transformedEmails.map((e) => e.email_id),
     });
-
-    // Process all emails in parallel (non-blocking)
-    // Note: This happens after the response is sent due to Next.js behavior
-    Promise.all(
-      transformedEmails.map((email) =>
-        processEmail(email).catch((error) => {
-          console.error("Failed to process email:", {
-            email_id: email.email_id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Don't throw - we want all emails to be processed independently
-        })
-      )
-    ).then(() => {
-      console.log("All emails processed successfully");
-    });
-
-    return response;
   } catch (error) {
     console.error("Error handling email webhook:", error);
     return NextResponse.json(

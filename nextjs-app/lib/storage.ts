@@ -1,6 +1,6 @@
-import { getSupabaseClient } from './supabase';
+import { getSupabaseClient } from "./supabase";
 
-const EPUB_BUCKET = 'epubs';
+const EPUB_BUCKET = "epubs";
 
 /**
  * Upload an EPUB file to Supabase Storage
@@ -13,11 +13,11 @@ export async function uploadEpub(
   fileBuffer: Buffer
 ): Promise<string> {
   const supabase = getSupabaseClient();
-  
+
   const { data, error } = await supabase.storage
     .from(EPUB_BUCKET)
     .upload(fileName, fileBuffer, {
-      contentType: 'application/epub+zip',
+      contentType: "application/epub+zip",
       upsert: true, // Replace if exists
     });
 
@@ -35,7 +35,7 @@ export async function uploadEpub(
  */
 export async function downloadEpub(storagePath: string): Promise<Buffer> {
   const supabase = getSupabaseClient();
-  
+
   const { data, error } = await supabase.storage
     .from(EPUB_BUCKET)
     .download(storagePath);
@@ -55,7 +55,7 @@ export async function downloadEpub(storagePath: string): Promise<Buffer> {
  */
 export async function deleteEpub(storagePath: string): Promise<void> {
   const supabase = getSupabaseClient();
-  
+
   const { error } = await supabase.storage
     .from(EPUB_BUCKET)
     .remove([storagePath]);
@@ -72,10 +72,8 @@ export async function deleteEpub(storagePath: string): Promise<void> {
  */
 export async function getPublicUrl(storagePath: string): Promise<string> {
   const supabase = getSupabaseClient();
-  
-  const { data } = supabase.storage
-    .from(EPUB_BUCKET)
-    .getPublicUrl(storagePath);
+
+  const { data } = supabase.storage.from(EPUB_BUCKET).getPublicUrl(storagePath);
 
   return data.publicUrl;
 }
@@ -91,7 +89,7 @@ export async function getSignedUrl(
   expiresIn: number = 3600
 ): Promise<string> {
   const supabase = getSupabaseClient();
-  
+
   const { data, error } = await supabase.storage
     .from(EPUB_BUCKET)
     .createSignedUrl(storagePath, expiresIn);
@@ -110,13 +108,11 @@ export async function getSignedUrl(
  */
 export async function listEpubs(limit: number = 100) {
   const supabase = getSupabaseClient();
-  
-  const { data, error } = await supabase.storage
-    .from(EPUB_BUCKET)
-    .list('', {
-      limit,
-      sortBy: { column: 'created_at', order: 'desc' },
-    });
+
+  const { data, error } = await supabase.storage.from(EPUB_BUCKET).list("", {
+    limit,
+    sortBy: { column: "created_at", order: "desc" },
+  });
 
   if (error) {
     throw new Error(`Failed to list EPUBs: ${error.message}`);
@@ -132,12 +128,10 @@ export async function listEpubs(limit: number = 100) {
  */
 export async function epubExists(storagePath: string): Promise<boolean> {
   const supabase = getSupabaseClient();
-  
-  const { data, error } = await supabase.storage
-    .from(EPUB_BUCKET)
-    .list('', {
-      search: storagePath,
-    });
+
+  const { data, error } = await supabase.storage.from(EPUB_BUCKET).list("", {
+    search: storagePath,
+  });
 
   if (error) {
     return false;
@@ -146,3 +140,110 @@ export async function epubExists(storagePath: string): Promise<boolean> {
   return data.length > 0;
 }
 
+/**
+ * Upload JSON data to Supabase Storage (for email data, etc.)
+ * @param bucketName - Name of the storage bucket
+ * @param filePath - Path where to store the file
+ * @param data - JSON data to upload
+ * @returns Storage path of the uploaded file
+ */
+export async function uploadJSON(
+  bucketName: string,
+  filePath: string,
+  data: unknown
+): Promise<string> {
+  const supabase = getSupabaseClient();
+
+  const jsonString = JSON.stringify(data, null, 2);
+  const buffer = Buffer.from(jsonString, "utf-8");
+
+  const { data: uploadData, error } = await supabase.storage
+    .from(bucketName)
+    .upload(filePath, buffer, {
+      contentType: "application/json",
+      upsert: true,
+    });
+
+  if (error) {
+    throw new Error(`Failed to upload JSON: ${error.message}`);
+  }
+
+  return uploadData.path;
+}
+
+/**
+ * Download JSON data from Supabase Storage
+ * @param bucketName - Name of the storage bucket
+ * @param filePath - Path to the file
+ * @returns Parsed JSON data
+ */
+export async function downloadJSON<T = unknown>(
+  bucketName: string,
+  filePath: string
+): Promise<T> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .download(filePath);
+
+  if (error) {
+    throw new Error(`Failed to download JSON: ${error.message}`);
+  }
+
+  const text = await data.text();
+  return JSON.parse(text) as T;
+}
+
+/**
+ * Upload text content to Supabase Storage
+ * @param bucketName - Name of the storage bucket
+ * @param filePath - Path where to store the file
+ * @param text - Text content to upload
+ * @returns Storage path of the uploaded file
+ */
+export async function uploadText(
+  bucketName: string,
+  filePath: string,
+  text: string
+): Promise<string> {
+  const supabase = getSupabaseClient();
+
+  const buffer = Buffer.from(text, "utf-8");
+
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .upload(filePath, buffer, {
+      contentType: "text/plain",
+      upsert: true,
+    });
+
+  if (error) {
+    throw new Error(`Failed to upload text: ${error.message}`);
+  }
+
+  return data.path;
+}
+
+/**
+ * Download text content from Supabase Storage
+ * @param bucketName - Name of the storage bucket
+ * @param filePath - Path to the file
+ * @returns Text content
+ */
+export async function downloadText(
+  bucketName: string,
+  filePath: string
+): Promise<string> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .download(filePath);
+
+  if (error) {
+    throw new Error(`Failed to download text: ${error.message}`);
+  }
+
+  return data.text();
+}
