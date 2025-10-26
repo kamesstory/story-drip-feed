@@ -178,15 +178,21 @@ test_health_checks() {
   
   # NextJS health
   subsection "Checking NextJS health"
-  result=$(http_request "GET" "$BASE_URL/api/health" "" "NextJS Health Check")
-  http_code=$(echo "$result" | head -n1)
-  body=$(echo "$result" | tail -n1)
+  log "Request: GET $BASE_URL/api/health"
+  
+  http_response=$(curl -s -w "\n%{http_code}" "$BASE_URL/api/health")
+  http_code=$(echo "$http_response" | tail -n1)
+  body=$(echo "$http_response" | sed '$d')
+  
+  log "HTTP Status: $http_code"
+  
+  if [ "$VERBOSE" = true ]; then
+    info "Response body:"
+    print_json "$body"
+  fi
   
   if [ "$http_code" = "200" ]; then
     success "NextJS is healthy"
-    if [ "$VERBOSE" = true ]; then
-      print_json "$body"
-    fi
   else
     error "NextJS health check failed (HTTP $http_code)"
     return 1
@@ -199,15 +205,21 @@ test_health_checks() {
   if [ -z "$modal_url" ]; then
     warning "MODAL_API_URL not set, skipping Modal health check"
   else
-    result=$(http_request "GET" "${modal_url}/health" "" "Modal API Health Check")
-    http_code=$(echo "$result" | head -n1)
-    body=$(echo "$result" | tail -n1)
+    log "Request: GET ${modal_url}/health"
+    
+    http_response=$(curl -s -w "\n%{http_code}" "${modal_url}/health")
+    http_code=$(echo "$http_response" | tail -n1)
+    body=$(echo "$http_response" | sed '$d')
+    
+    log "HTTP Status: $http_code"
+    
+    if [ "$VERBOSE" = true ]; then
+      info "Response body:"
+      print_json "$body"
+    fi
     
     if [ "$http_code" = "200" ]; then
       success "Modal API is healthy"
-      if [ "$VERBOSE" = true ]; then
-        print_json "$body"
-      fi
     else
       error "Modal API health check failed (HTTP $http_code)"
       return 1
@@ -257,24 +269,41 @@ EOF
   fi
   
   subsection "Sending test email to webhook"
-  result=$(http_request "POST" "$BASE_URL/api/webhooks/email" "$test_email_payload" "Email Webhook")
-  http_code=$(echo "$result" | head -n1)
-  body=$(echo "$result" | tail -n1)
+  log "Request: POST $BASE_URL/api/webhooks/email"
+  
+  http_response=$(curl -s -w "\n%{http_code}" -X POST \
+    -H "Content-Type: application/json" \
+    -d "$test_email_payload" \
+    "$BASE_URL/api/webhooks/email")
+  
+  http_code=$(echo "$http_response" | tail -n1)
+  body=$(echo "$http_response" | sed '$d')
+  
+  log "HTTP Status: $http_code"
+  
+  if [ "$VERBOSE" = true ]; then
+    info "Response body:"
+    print_json "$body"
+  fi
   
   if [ "$http_code" = "200" ]; then
     success "Email webhook accepted (HTTP 200)"
     
-    # Extract story ID from response
+    # Extract email ID from response
     if command -v jq &> /dev/null; then
-      email_id=$(echo "$body" | jq -r '.email_ids[0]')
+      email_id=$(echo "$body" | jq -r '.email_ids[0]' 2>/dev/null || echo "unknown")
       info "Email ID: $email_id"
       echo "$email_id" > /tmp/test-ingest-email-id.txt
     fi
     
-    info "Response:"
+    info "Response summary:"
     print_json "$body"
   else
     error "Email webhook failed (HTTP $http_code)"
+    if [ "$VERBOSE" = false ]; then
+      error "Response:"
+      print_json "$body"
+    fi
     return 1
   fi
   
