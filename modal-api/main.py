@@ -20,7 +20,7 @@ app = modal.App(APP_NAME)
 
 # Define image with dependencies
 image = (
-    modal.Image.debian_slim()
+    modal.Image.debian_slim(python_version="3.12")
     .pip_install(
         "anthropic>=0.69.0",
         "claude-agent-sdk>=0.1.0",
