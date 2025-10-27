@@ -69,6 +69,7 @@ modal secret create supabase-secrets-prod \
 ```
 
 **Note:** Save both `MODAL_API_KEY` values:
+
 - Dev key for local testing
 - Prod key for NextJS production configuration
 
@@ -214,6 +215,7 @@ modal secret list
 ```
 
 You should see:
+
 - `story-prep-secrets-dev`
 - `supabase-secrets-dev`
 - `story-prep-secrets-prod`
@@ -222,6 +224,7 @@ You should see:
 If missing, follow Step 2 above.
 
 **Note:** The app automatically selects secrets based on `MODAL_ENVIRONMENT`:
+
 - Default: Uses `-dev` secrets
 - `MODAL_ENVIRONMENT=prod`: Uses `-prod` secrets
 
