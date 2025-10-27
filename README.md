@@ -1,17 +1,93 @@
 # Nighttime Story Prep
 
-Automated pipeline that receives Patreon stories via email, chunks them using AI, generates EPUBs, and delivers ONE chunk per day to Kindle at 8am UTC.
+Automated pipeline that receives Patreon stories via email, chunks them using AI, generates EPUBs, and delivers ONE chunk per day to Kindle at 8pm UTC.
 
 ## Features
 
-- **Email ingestion**: Webhook receives stories from Mailgun/SendGrid/etc
-- **AI content extraction**: Strips metadata, keeps only story text
-- **Intelligent chunking**: ~5k word chunks at natural narrative breaks
+- **Email ingestion**: Webhook receives stories from Brevo/email providers
+- **AI content extraction**: Strips metadata, keeps only story text (Claude Agent SDK)
+- **Intelligent chunking**: ~8k word chunks at natural narrative breaks
 - **Daily drip-feed**: Sends one chunk per day to control reading pace
 - **EPUB generation**: Creates properly formatted ebooks
-- **Robust tracking**: SQLite database with retry logic
+- **Robust tracking**: PostgreSQL (Supabase) database with Supabase Storage
 
-## Quick Start
+## Architecture
+
+- **Modal API**: Python service for AI-powered content extraction and chunking
+- **Next.js App**: Web application on Vercel with API routes
+- **Supabase**: PostgreSQL database and object storage
+- **Brevo**: Email ingestion (webhook) and SMTP delivery
+- **Vercel Crons**: Scheduled daily delivery (8pm UTC)
+
+## 🚀 Production Deployment
+
+Ready to deploy to production? Choose your guide:
+
+### Quick Start (30-40 minutes)
+
+**[DEPLOYMENT_QUICKSTART.md](DEPLOYMENT_QUICKSTART.md)** - Fast-track deployment guide
+
+```bash
+# Interactive setup (recommended)
+./scripts/setup-production-env.sh
+
+# Verify deployment
+./scripts/verify-deployment.sh
+```
+
+### Detailed Guide
+
+**[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - Comprehensive step-by-step guide with explanations
+
+### Deployment Checklist
+
+**[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)** - Printable checklist to track progress
+
+### Component-Specific Guides
+
+- **Modal API**: [modal-api/DEPLOYMENT.md](modal-api/DEPLOYMENT.md)
+- **Next.js App**: [nextjs-app/README.md](nextjs-app/README.md)
+- **Testing**: [scripts/TEST_README.md](scripts/TEST_README.md)
+
+---
+
+## 🔧 Development Setup
+
+For local development and testing:
+
+### Prerequisites
+
+```bash
+# Check versions
+node --version          # Need 20.9.0+
+supabase --version      # Supabase CLI
+modal --version         # Modal CLI
+```
+
+### Quick Start (Local Development)
+
+```bash
+# 1. Start local Supabase
+cd nextjs-app
+supabase start
+supabase db reset
+
+# 2. Configure environment
+cp env.example .env.local
+# Edit .env.local with Supabase credentials from 'supabase start' output
+
+# 3. Start Next.js dev server
+npm install
+npm run dev
+
+# 4. In another terminal, run tests
+cd ..
+./scripts/test/test-all.sh
+```
+
+See [nextjs-app/README.md](nextjs-app/README.md) for detailed development setup.
+
+## Old Quick Start (Legacy)
 
 ```bash
 # Install and setup
@@ -213,16 +289,19 @@ poetry run modal shell main.py::process_story
 ### Brevo (Sendinblue) Inbound Email Setup
 
 1. **Deploy your app:**
+
    ```bash
    modal deploy main.py
    ```
 
 2. **Get your webhook URL:**
+
    ```
    https://your-username--nighttime-story-prep-webhook.modal.run
    ```
 
 3. **Configure Brevo inbound domain:**
+
    - Go to Brevo dashboard → Settings → Inbound Parsing
    - Add your domain (e.g., `reply.yourdomain.com`)
    - Point your domain's MX records to Brevo's servers

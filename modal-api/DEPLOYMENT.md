@@ -26,25 +26,51 @@ In your Supabase project dashboard:
 
 ## Step 2: Configure Modal Secrets
 
-### Create story-prep-secrets
+**Important:** Use separate secrets for dev and production environments.
+
+### Create Development Secrets
 
 ```bash
-modal secret create story-prep-secrets \
+# Generate dev API key
+DEV_API_KEY=$(openssl rand -hex 32)
+echo "Dev API Key: $DEV_API_KEY"
+
+# Create story-prep-secrets-dev
+modal secret create story-prep-secrets-dev \
   ANTHROPIC_API_KEY=sk-ant-api03-xxx \
-  MODAL_API_KEY=$(openssl rand -hex 32) \
+  MODAL_API_KEY=$DEV_API_KEY \
   USE_AGENT_EXTRACTION=true \
   USE_AGENT_CHUNKER=true
-```
 
-**Note:** Save the `MODAL_API_KEY` value - you'll need it for NextJS configuration.
-
-### Create supabase-secrets
-
-```bash
-modal secret create supabase-secrets \
-  SUPABASE_URL=https://your-project.supabase.co \
+# Create supabase-secrets-dev
+modal secret create supabase-secrets-dev \
+  SUPABASE_URL=https://your-dev-project.supabase.co \
   SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
+
+### Create Production Secrets
+
+```bash
+# Generate production API key (DIFFERENT from dev!)
+PROD_API_KEY=$(openssl rand -hex 32)
+echo "Prod API Key: $PROD_API_KEY"
+
+# Create story-prep-secrets-prod
+modal secret create story-prep-secrets-prod \
+  ANTHROPIC_API_KEY=sk-ant-api03-xxx \
+  MODAL_API_KEY=$PROD_API_KEY \
+  USE_AGENT_EXTRACTION=true \
+  USE_AGENT_CHUNKER=true
+
+# Create supabase-secrets-prod
+modal secret create supabase-secrets-prod \
+  SUPABASE_URL=https://your-prod-project.supabase.co \
+  SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Note:** Save both `MODAL_API_KEY` values:
+- Dev key for local testing
+- Prod key for NextJS production configuration
 
 **Security Note:** The service role key has full access to your Supabase project. Keep it secret!
 
@@ -181,13 +207,23 @@ Modal will:
 
 ### "Secret not found" error
 
-Create the required secrets:
+Check which secrets you have:
 
 ```bash
 modal secret list
 ```
 
+You should see:
+- `story-prep-secrets-dev`
+- `supabase-secrets-dev`
+- `story-prep-secrets-prod`
+- `supabase-secrets-prod`
+
 If missing, follow Step 2 above.
+
+**Note:** The app automatically selects secrets based on `MODAL_ENVIRONMENT`:
+- Default: Uses `-dev` secrets
+- `MODAL_ENVIRONMENT=prod`: Uses `-prod` secrets
 
 ### "Supabase connection failed"
 

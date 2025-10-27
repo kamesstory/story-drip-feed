@@ -12,8 +12,14 @@ import os
 IS_DEV = os.environ.get("MODAL_ENVIRONMENT", "dev") != "prod"
 APP_NAME = "nighttime-story-prep-api-dev" if IS_DEV else "nighttime-story-prep-api"
 
+# Environment-specific secrets
+STORY_PREP_SECRET = "story-prep-secrets-dev" if IS_DEV else "story-prep-secrets-prod"
+SUPABASE_SECRET = "supabase-secrets-dev" if IS_DEV else "supabase-secrets-prod"
+
 print(f"🚀 Running Modal API in {'DEVELOPMENT' if IS_DEV else 'PRODUCTION'} mode")
 print(f"   App: {APP_NAME}")
+print(f"   Story Prep Secret: {STORY_PREP_SECRET}")
+print(f"   Supabase Secret: {SUPABASE_SECRET}")
 
 # Create Modal app
 app = modal.App(APP_NAME)
@@ -42,8 +48,8 @@ image = (
 @app.function(
     image=image,
     secrets=[
-        modal.Secret.from_name("story-prep-secrets"),
-        modal.Secret.from_name("supabase-secrets"),
+        modal.Secret.from_name(STORY_PREP_SECRET),
+        modal.Secret.from_name(SUPABASE_SECRET),
     ],
     timeout=900,
 )
