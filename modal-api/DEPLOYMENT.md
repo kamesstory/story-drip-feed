@@ -87,8 +87,10 @@ modal deploy main.py
 This will:
 
 - Build the Docker image with dependencies
-- Deploy as `nighttime-story-prep-api-dev`
+- Deploy as `nighttime-story-prep-api-dev` (uses `-dev` secrets)
 - Create three web endpoints
+
+**Note**: By default (without setting `APP_ENV`), the app uses development secrets.
 
 ## Step 4: Note the Endpoint URLs
 
@@ -138,16 +140,24 @@ MODAL_API_KEY=your-api-key-from-step-2
 For production deployment:
 
 ```bash
-MODAL_ENVIRONMENT=prod modal deploy main.py
+# Set environment variable, then deploy
+export APP_ENV=prod
+modal deploy main.py
+
+# Or in one command:
+env APP_ENV=prod modal deploy main.py
 ```
 
-This creates `nighttime-story-prep-api` (without `-dev` suffix).
+This creates `nighttime-story-prep-api` (without `-dev` suffix) and uses production secrets:
 
-Use separate Modal secrets for production:
+- `story-prep-secrets-prod`
+- `supabase-secrets-prod`
 
-- Different API keys
+Make sure you've created the production secrets first (see Step 2 above) with:
+
+- Different API keys from development
 - Production Supabase credentials
-- More restrictive settings
+- Production-appropriate settings
 
 ## Monitoring and Debugging
 
@@ -223,10 +233,10 @@ You should see:
 
 If missing, follow Step 2 above.
 
-**Note:** The app automatically selects secrets based on `MODAL_ENVIRONMENT`:
+**Note:** The app automatically selects secrets based on `APP_ENV`:
 
 - Default: Uses `-dev` secrets
-- `MODAL_ENVIRONMENT=prod`: Uses `-prod` secrets
+- `APP_ENV=prod`: Uses `-prod` secrets
 
 ### "Supabase connection failed"
 

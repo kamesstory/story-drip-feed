@@ -8,8 +8,8 @@ Uses Supabase Storage for all file operations.
 import modal
 import os
 
-# Environment detection
-IS_DEV = os.environ.get("MODAL_ENVIRONMENT", "dev") != "prod"
+# Environment detection (use APP_ENV instead of MODAL_ENVIRONMENT to avoid conflicts)
+IS_DEV = os.environ.get("APP_ENV", "dev") != "prod"
 APP_NAME = "nighttime-story-prep-api-dev" if IS_DEV else "nighttime-story-prep-api"
 
 # Environment-specific secrets
