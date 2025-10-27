@@ -209,6 +209,21 @@ def fastapi_app():
             print(f"   Total chunks: {result['total_chunks']}", flush=True)
             print(f"   Total words: {result['total_words']}", flush=True)
             print(f"   Strategy used: {result['chunking_strategy']}", flush=True)
+            print(f"   Chunks array length: {len(result.get('chunks', []))}", flush=True)
+            
+            # Validate chunks were created
+            if not result.get('chunks') or len(result['chunks']) == 0:
+                error_msg = f"Chunking failed: No chunks created (total_chunks={result.get('total_chunks')}, chunks array length={len(result.get('chunks', []))})"
+                print(f"❌ {error_msg}", flush=True)
+                print(f"{'='*80}\n", flush=True)
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": "Chunking Error",
+                        "message": error_msg
+                    }
+                )
+            
             print(f"{'='*80}\n", flush=True)
 
             return {

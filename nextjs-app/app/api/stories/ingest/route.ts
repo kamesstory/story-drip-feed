@@ -122,6 +122,21 @@ async function processStory(
       chunking_strategy: chunkingResult.chunking_strategy,
     });
 
+    // Validate that chunks were actually created
+    if (!chunkingResult.chunks || chunkingResult.chunks.length === 0) {
+      throw new Error(
+        `Chunking returned no chunks (total_chunks: ${
+          chunkingResult.total_chunks
+        }, chunks array length: ${chunkingResult.chunks?.length || 0})`
+      );
+    }
+
+    if (chunkingResult.chunks.length !== chunkingResult.total_chunks) {
+      console.warn(
+        `⚠️  Warning: chunks array length (${chunkingResult.chunks.length}) doesn't match total_chunks (${chunkingResult.total_chunks})`
+      );
+    }
+
     // Step 6: Generate EPUBs and save chunks to database
     currentStep = "generate_epubs";
     console.log(

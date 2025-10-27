@@ -50,9 +50,17 @@ class AgentChunker:
         """
         # Read content from Supabase
         content = storage.download_text(content_url)
+        
+        # Validate content is not empty
+        if not content or not content.strip():
+            raise Exception(f"Content is empty for storage_id {storage_id} at {content_url}")
 
         # Chunk the content using agent
         chunks = await self.chunk_text(content)
+        
+        # Validate we got chunks
+        if not chunks or len(chunks) == 0:
+            raise Exception(f"Chunking returned zero chunks for storage_id {storage_id}")
 
         # Save each chunk to Supabase
         chunk_info = []
